@@ -1,0 +1,22 @@
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./models:/app/models
+      - ./data:/app/data
+    environment:
+      - MODEL_PATH=/app/models
+      - DATA_PATH=/app/data
+    command: python -m src.api.main
+
+  training:
+    build: .
+    volumes:
+      - ./models:/app/models
+      - ./data:/app/data
+    environment:
+      - MODEL_PATH=/app/models
+      - DATA_PATH=/app/data
+    command: python -m src.training.train 
