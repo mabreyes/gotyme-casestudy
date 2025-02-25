@@ -9,11 +9,14 @@ This project implements a machine learning solution to predict whether a custome
 ├── data/
 │   └── dataset.csv         # Training data (pipe-delimited)
 ├── models/                 # Directory for saved models
+│   ├── analysis/          # Analysis reports and visualizations
+│   └── plots/             # Performance and impact plots
 ├── src/
 │   ├── api/               # API implementation
-│   ├── data/             # Data loading and preprocessing
-│   ├── prediction/       # Prediction and analysis
-│   └── training/         # Model training
+│   ├── data/              # Data loading and preprocessing
+│   ├── analysis/          # Model analysis and evaluation
+│   ├── prediction/        # Prediction and analysis
+│   └── training/          # Model training
 ├── tests/                 # Unit tests
 ├── Dockerfile            # Docker configuration
 ├── docker-compose.yml    # Docker Compose configuration
@@ -26,8 +29,8 @@ This project implements a machine learning solution to predict whether a custome
 
 - Data preprocessing and feature engineering
 - XGBoost model training with hyperparameter tuning
-- Model evaluation and metrics tracking
-- Financial impact analysis
+- Comprehensive model analysis and evaluation
+- Financial impact analysis with risk-based assessment
 - REST API for predictions and analysis
 - Docker containerization
 - Automated build and deployment using Make
@@ -53,24 +56,68 @@ make build
 
 ## Usage
 
-### Using Make Commands
+### Available Commands
 
-- Train the model:
+View all available commands:
 ```bash
-make train
+make help
 ```
 
-- Start the API server:
+### Training and Analysis
+
+1. Build the Docker images:
 ```bash
-make api
+make build
 ```
 
-- Run predictions:
+2. Train the model and run analysis:
 ```bash
-make predict
+make analyze
 ```
+
+This will:
+- Train the XGBoost model with optimized hyperparameters
+- Generate analysis reports and visualizations
+- Save model artifacts in the `models` directory
+
+3. View results:
+```bash
+# View analysis report
+make view-analysis
+
+# View model metrics
+make view-metrics
+```
+
+Analysis outputs will be available in:
+- Model analysis report: `models/analysis/analysis_report.json`
+- Model file: `models/model.pkl`
+- Performance metrics: `models/metrics.json`
+- Visualizations: `models/plots/`
+
+### Model Performance
+
+Current model metrics (as of latest training):
+- Accuracy: 91.49%
+- Precision: 64.60%
+- Recall: 53.63%
+- F1 Score: 58.60%
+- Optimal threshold: 0.084 (TPR: 94.40%, FPR: 16.06%)
+
+### Financial Impact Analysis
+
+The model includes risk-based financial impact analysis:
+- Risk bands: High (10%), Medium (25%), Low (65%)
+- Profit/loss matrix per risk band
+- Campaign size analysis (default: 10,000 customers)
+- Opportunity loss calculation
 
 ### Using the API
+
+Start the API server:
+```bash
+make serve
+```
 
 The API provides the following endpoints:
 
@@ -100,6 +147,28 @@ curl -X POST http://localhost:8000/analyze \
   }'
 ```
 
+### Development Commands
+
+```bash
+# Install dependencies
+make install
+
+# Format code
+make format
+
+# Run linting
+make lint
+
+# Run tests
+make test
+
+# Clean up generated files
+make clean
+
+# Run all checks (clean, install, format, lint, test)
+make all
+```
+
 ## Model Details
 
 ### Features
@@ -110,21 +179,32 @@ The model uses the following features:
 - Macro variables (employment rate, CPI, etc.)
 - Financial indicators (credit defaults, loans)
 
-### Performance Metrics
+Key informative features (based on mutual information):
+- Feature_dn_1 (0.078)
+- Feature_em_8 (0.073)
+- Feature_cx_7 (0.069)
+- Feature_cx_6 (0.068)
 
-The model is evaluated using:
-- Accuracy
-- Precision
-- Recall
-- F1 Score
-- Confusion Matrix
+### Data Characteristics
 
-### Financial Impact Analysis
+- Class distribution:
+  - Negative class (0): 88.77%
+  - Positive class (1): 11.23%
+- No missing values
+- Several features with significant outliers
+- High correlations between some features:
+  - Feature_em_8 and Feature_ee_5 (0.972)
+  - Feature_nd_9 and Feature_em_8 (0.945)
+  - Feature_nd_9 and Feature_ee_5 (0.907)
 
-The analysis considers:
-- Risk-based profit matrix
-- Expected campaign profit
-- Opportunity loss due to misclassification
+### Performance Analysis
+
+The model evaluation includes:
+- ROC curves with optimal threshold analysis
+- Confusion matrix visualization
+- Feature importance plots
+- Distribution analysis by response
+- Financial impact visualization
 
 ## Development
 
@@ -152,4 +232,4 @@ make lint
 
 ## Contributing
 
-[Your Contributing Guidelines] 
+[Your Contributing Guidelines]

@@ -16,11 +16,11 @@ from sklearn.metrics import (
 )
 from sklearn.model_selection import GridSearchCV
 
+from src.analysis import ModelAnalyzer
 from src.data.loader import DataLoader
 from src.visualization.plots import (
     plot_confusion_matrix,
     plot_feature_importance,
-    plot_financial_impact,
     plot_roc_curve,
 )
 
@@ -49,9 +49,21 @@ class ModelTrainer:
     def train(self) -> None:
         """Train the XGBoost model with hyperparameter tuning."""
         logger.info("Loading and preprocessing data...")
+        df = self.data_loader.load_data()
         X_train, X_test, y_train, y_test = self.data_loader.get_train_test_split(
             random_state=self.random_state
         )
+
+        # Create analysis directory
+        analysis_path = self.model_save_path / "analysis"
+        analysis_path.mkdir(parents=True, exist_ok=True)
+
+        # Initialize analyzer and perform pre-training analysis
+        analyzer = ModelAnalyzer(df, None, analysis_path)
+        logger.info("Performing pre-training analysis...")
+        analyzer.analyze_data_quality()
+        analyzer.analyze_feature_relevance()
+        analyzer.analyze_class_balance()
 
         logger.info("Starting hyperparameter tuning...")
         param_grid = {
@@ -82,11 +94,28 @@ class ModelTrainer:
         logger.info(f"Best parameters: {grid_search.best_params_}")
         self.model = grid_search.best_estimator_
 
-        # Evaluate the model
+        # Update analyzer with trained model and perform post-training analysis
+        analyzer.model = self.model
+        logger.info("Performing post-training analysis...")
+        analyzer.analyze_model_performance(X_test, y_test)
+
+        # Perform financial impact analysis
+        risk_bands = {"High": 0.10, "Medium": 0.25, "Low": 0.65}
+        profit_matrix = {
+            "High": {"success": 285.00, "failure": -300.00},
+            "Medium": {"success": 705.00, "failure": -300.00},
+            "Low": {"success": 1225.00, "failure": -300.00},
+        }
+        analyzer.analyze_financial_impact(risk_bands, profit_matrix)
+
+        # Save analysis report
+        analyzer.save_analysis_report()
+
+        # Evaluate the model and save metrics
         metrics = self._evaluate_model(X_test, y_test)
         logger.info(f"Model evaluation metrics: {metrics}")
 
-        # Generate and save plots
+        # Generate visualization plots
         self._generate_plots(X_test, y_test)
 
         # Save the model and metrics
@@ -140,13 +169,6 @@ class ModelTrainer:
         plot_confusion_matrix(
             y_test, y_pred, save_path=plots_dir / "confusion_matrix.png"
         )
-
-        # Financial impact analysis
-        from src.prediction.predict import ModelPredictor
-
-        predictor = ModelPredictor(self.model_save_path)
-        analysis = predictor.analyze_financial_impact(X_test)
-        plot_financial_impact(analysis, save_path=plots_dir / "financial_impact.png")
 
     def _save_model_and_metrics(self, metrics: Dict[str, float]) -> None:
         """Save the trained model and evaluation metrics.
