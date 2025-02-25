@@ -3,9 +3,8 @@ import json
 import logging
 import pickle
 from pathlib import Path
-from typing import Dict, Tuple
+from typing import Dict
 
-import numpy as np
 import pandas as pd
 import xgboost as xgb
 from sklearn.metrics import (
@@ -18,6 +17,12 @@ from sklearn.metrics import (
 from sklearn.model_selection import GridSearchCV
 
 from src.data.loader import DataLoader
+from src.visualization.plots import (
+    plot_confusion_matrix,
+    plot_feature_importance,
+    plot_financial_impact,
+    plot_roc_curve,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -27,10 +32,7 @@ class ModelTrainer:
     """Handles model training and evaluation."""
 
     def __init__(
-        self,
-        data_path: str | Path,
-        model_save_path: str | Path,
-        random_state: int = 42
+        self, data_path: str | Path, model_save_path: str | Path, random_state: int = 42
     ):
         """Initialize the ModelTrainer.
 
@@ -53,31 +55,30 @@ class ModelTrainer:
 
         logger.info("Starting hyperparameter tuning...")
         param_grid = {
-            'max_depth': [3, 5, 7],
-            'learning_rate': [0.01, 0.1],
-            'n_estimators': [100, 200],
-            'min_child_weight': [1, 3],
-            'gamma': [0, 0.1],
-            'subsample': [0.8, 1.0],
-            'colsample_bytree': [0.8, 1.0]
+            "max_depth": [3, 5, 7],
+            "learning_rate": [0.01, 0.1],
+            "n_estimators": [100, 200],
+            "min_child_weight": [1, 3],
+            "gamma": [0, 0.1],
+            "subsample": [0.8, 1.0],
+            "colsample_bytree": [0.8, 1.0],
         }
 
         xgb_model = xgb.XGBClassifier(
-            objective='binary:logistic',
-            random_state=self.random_state
+            objective="binary:logistic", random_state=self.random_state
         )
 
         grid_search = GridSearchCV(
             estimator=xgb_model,
             param_grid=param_grid,
             cv=5,
-            scoring='f1',
+            scoring="f1",
             n_jobs=-1,
-            verbose=1
+            verbose=1,
         )
 
         grid_search.fit(X_train, y_train)
-        
+
         logger.info(f"Best parameters: {grid_search.best_params_}")
         self.model = grid_search.best_estimator_
 
@@ -85,13 +86,14 @@ class ModelTrainer:
         metrics = self._evaluate_model(X_test, y_test)
         logger.info(f"Model evaluation metrics: {metrics}")
 
+        # Generate and save plots
+        self._generate_plots(X_test, y_test)
+
         # Save the model and metrics
         self._save_model_and_metrics(metrics)
 
     def _evaluate_model(
-        self,
-        X_test: pd.DataFrame,
-        y_test: pd.Series
+        self, X_test: pd.DataFrame, y_test: pd.Series
     ) -> Dict[str, float]:
         """Evaluate the trained model.
 
@@ -103,16 +105,48 @@ class ModelTrainer:
             Dictionary containing evaluation metrics
         """
         y_pred = self.model.predict(X_test)
-        
+
         metrics = {
-            'accuracy': accuracy_score(y_test, y_pred),
-            'precision': precision_score(y_test, y_pred),
-            'recall': recall_score(y_test, y_pred),
-            'f1': f1_score(y_test, y_pred),
-            'confusion_matrix': confusion_matrix(y_test, y_pred).tolist()
+            "accuracy": accuracy_score(y_test, y_pred),
+            "precision": precision_score(y_test, y_pred),
+            "recall": recall_score(y_test, y_pred),
+            "f1": f1_score(y_test, y_pred),
+            "confusion_matrix": confusion_matrix(y_test, y_pred).tolist(),
         }
 
         return metrics
+
+    def _generate_plots(self, X_test: pd.DataFrame, y_test: pd.Series) -> None:
+        """Generate and save visualization plots.
+
+        Args:
+            X_test: Test features
+            y_test: Test target
+        """
+        plots_dir = self.model_save_path / "plots"
+        plots_dir.mkdir(exist_ok=True)
+
+        # Feature importance plot
+        plot_feature_importance(
+            self.model, X_test.columns, save_path=plots_dir / "feature_importance.png"
+        )
+
+        # ROC curve
+        y_prob = self.model.predict_proba(X_test)[:, 1]
+        plot_roc_curve(y_test, y_prob, save_path=plots_dir / "roc_curve.png")
+
+        # Confusion matrix
+        y_pred = self.model.predict(X_test)
+        plot_confusion_matrix(
+            y_test, y_pred, save_path=plots_dir / "confusion_matrix.png"
+        )
+
+        # Financial impact analysis
+        from src.prediction.predict import ModelPredictor
+
+        predictor = ModelPredictor(self.model_save_path)
+        analysis = predictor.analyze_financial_impact(X_test)
+        plot_financial_impact(analysis, save_path=plots_dir / "financial_impact.png")
 
     def _save_model_and_metrics(self, metrics: Dict[str, float]) -> None:
         """Save the trained model and evaluation metrics.
@@ -124,29 +158,26 @@ class ModelTrainer:
         self.model_save_path.mkdir(parents=True, exist_ok=True)
 
         # Save the model
-        model_file = self.model_save_path / 'model.pkl'
-        with open(model_file, 'wb') as f:
-            pickle.dump({
-                'model': self.model,
-                'data_loader': self.data_loader
-            }, f)
+        model_file = self.model_save_path / "model.pkl"
+        with open(model_file, "wb") as f:
+            pickle.dump({"model": self.model, "data_loader": self.data_loader}, f)
         logger.info(f"Model saved to {model_file}")
 
         # Save the metrics
-        metrics_file = self.model_save_path / 'metrics.json'
-        with open(metrics_file, 'w') as f:
+        metrics_file = self.model_save_path / "metrics.json"
+        with open(metrics_file, "w") as f:
             json.dump(metrics, f, indent=2)
         logger.info(f"Metrics saved to {metrics_file}")
 
 
 def main():
     """Main function to train the model."""
-    data_path = Path('data/dataset.csv')
-    model_save_path = Path('models')
-    
+    data_path = Path("data/dataset.csv")
+    model_save_path = Path("models")
+
     trainer = ModelTrainer(data_path, model_save_path)
     trainer.train()
 
 
-if __name__ == '__main__':
-    main() 
+if __name__ == "__main__":
+    main()
