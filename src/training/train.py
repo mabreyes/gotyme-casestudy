@@ -3,10 +3,13 @@ import json
 import logging
 import pickle
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Tuple
 
+import matplotlib.pyplot as plt
 import pandas as pd
+import seaborn as sns
 import xgboost as xgb
+from imblearn.over_sampling import SMOTENC
 from sklearn.metrics import (
     accuracy_score,
     confusion_matrix,
@@ -46,6 +49,77 @@ class ModelTrainer:
         self.random_state = random_state
         self.model = None
 
+    def _plot_class_distribution(self, y: pd.Series, title: str, filename: str) -> None:
+        """Plot the class distribution.
+
+        Args:
+            y: Target variable
+            title: Plot title
+            filename: Filename to save the plot
+        """
+        plt.figure(figsize=(10, 6))
+        ax = sns.countplot(x=y)
+        plt.title(title)
+        plt.xlabel("Class")
+        plt.ylabel("Count")
+
+        # Add count labels on top of bars
+        for p in ax.patches:
+            ax.annotate(
+                f"{int(p.get_height())}",
+                (p.get_x() + p.get_width() / 2.0, p.get_height()),
+                ha="center",
+                va="bottom",
+            )
+
+        # Add percentage labels
+        total = len(y)
+        for i, p in enumerate(ax.patches):
+            percentage = 100 * p.get_height() / total
+            ax.annotate(
+                f"{percentage:.1f}%",
+                (p.get_x() + p.get_width() / 2.0, p.get_height() / 2),
+                ha="center",
+                va="center",
+                color="white",
+                fontweight="bold",
+            )
+
+        plt.tight_layout()
+        plt.savefig(self.model_save_path / "plots" / filename)
+        plt.close()
+
+    def _apply_smote_nc(
+        self, X: pd.DataFrame, y: pd.Series
+    ) -> Tuple[pd.DataFrame, pd.Series]:
+        """Apply SMOTE-NC to handle class imbalance.
+
+        Args:
+            X: Features DataFrame
+            y: Target Series
+
+        Returns:
+            Tuple of resampled features and target
+        """
+        logger.info("Applying SMOTE-NC to handle class imbalance...")
+
+        # Identify categorical feature indices
+        categorical_features = []
+        for i, col in enumerate(X.columns):
+            if col in self.data_loader.categorical_features:
+                categorical_features.append(i)
+
+        # Apply SMOTE-NC
+        smote_nc = SMOTENC(
+            categorical_features=categorical_features, random_state=self.random_state
+        )
+        X_resampled, y_resampled = smote_nc.fit_resample(X, y)
+
+        logger.info(
+            f"Original dataset shape: {X.shape}, Resampled dataset shape: {X_resampled.shape}"
+        )
+        return X_resampled, y_resampled
+
     def train(self) -> None:
         """Train the XGBoost model with hyperparameter tuning."""
         logger.info("Loading and preprocessing data...")
@@ -54,9 +128,28 @@ class ModelTrainer:
             random_state=self.random_state
         )
 
-        # Create analysis directory
+        # Create analysis directory and plots directory
         analysis_path = self.model_save_path / "analysis"
+        plots_dir = self.model_save_path / "plots"
         analysis_path.mkdir(parents=True, exist_ok=True)
+        plots_dir.mkdir(parents=True, exist_ok=True)
+
+        # Plot class distribution before SMOTE-NC
+        self._plot_class_distribution(
+            y_train,
+            "Class Distribution Before SMOTE-NC",
+            "class_distribution_before_smote.png",
+        )
+
+        # Apply SMOTE-NC to handle class imbalance
+        X_train_resampled, y_train_resampled = self._apply_smote_nc(X_train, y_train)
+
+        # Plot class distribution after SMOTE-NC
+        self._plot_class_distribution(
+            y_train_resampled,
+            "Class Distribution After SMOTE-NC",
+            "class_distribution_after_smote.png",
+        )
 
         # Initialize analyzer and perform pre-training analysis
         analyzer = ModelAnalyzer(df, None, analysis_path)
@@ -89,7 +182,9 @@ class ModelTrainer:
             verbose=1,
         )
 
-        grid_search.fit(X_train, y_train)
+        # Train on the resampled data
+        logger.info("Training model on SMOTE-NC resampled data...")
+        grid_search.fit(X_train_resampled, y_train_resampled)
 
         logger.info(f"Best parameters: {grid_search.best_params_}")
         self.model = grid_search.best_estimator_
@@ -127,7 +222,7 @@ class ModelTrainer:
                         "optimal_threshold": 0.5,
                     }
                 }
-                with open(self.analysis_path / "analysis_report.json", "w") as f:
+                with open(analysis_path / "analysis_report.json", "w") as f:
                     json.dump(simplified_results, f, indent=2)
                 logger.info("Simplified analysis report saved successfully")
             except Exception as e2:

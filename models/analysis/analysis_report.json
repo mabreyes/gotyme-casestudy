@@ -96,26 +96,26 @@
   },
   "feature_relevance": {
     "mutual_information": {
-      "Feature_ae_0": 0.011615277243056,
-      "Feature_dn_1": 0.0775050199818903,
-      "Feature_cn_2": 0.004040010605569355,
-      "Feature_ps_3": 0.039510752125472504,
-      "Feature_ps_4": 0.017639164829861942,
-      "Feature_ee_5": 0.053497491327062274,
-      "Feature_cx_6": 0.06659532487662823,
-      "Feature_cx_7": 0.06650865936968642,
-      "Feature_em_8": 0.07179368593162905,
-      "Feature_nd_9": 0.062345492534067404,
-      "Feature_jd_10": 0.008142410533089617,
-      "Feature_md_11": 0.005736748827793514,
-      "Feature_ed_12": 0.002547351938980258,
-      "Feature_dd_13": 0.007086702304562653,
-      "Feature_hd_14": 0.002889775726157895,
-      "Feature_ld_15": 0.0,
-      "Feature_cd_16": 0.014293829096851063,
-      "Feature_md_17": 0.02922585676200784,
-      "Feature_dd_18": 0.0013819159440475737,
-      "Feature_pd_19": 0.035673692951910585
+      "Feature_ae_0": 0.01418007866997284,
+      "Feature_dn_1": 0.07799090042392276,
+      "Feature_cn_2": 0.007186054643623319,
+      "Feature_ps_3": 0.03491364109440975,
+      "Feature_ps_4": 0.020331650954367397,
+      "Feature_ee_5": 0.054799544372241105,
+      "Feature_cx_6": 0.06808775939040368,
+      "Feature_cx_7": 0.06830787782406778,
+      "Feature_em_8": 0.07360169210534195,
+      "Feature_nd_9": 0.06195528881291601,
+      "Feature_jd_10": 0.010943926570066154,
+      "Feature_md_11": 0.002537603670625721,
+      "Feature_ed_12": 0.004710126635075973,
+      "Feature_dd_13": 0.004785535643243577,
+      "Feature_hd_14": 0.0018136154031365148,
+      "Feature_ld_15": 0.0019895047591149684,
+      "Feature_cd_16": 0.013805352317198816,
+      "Feature_md_17": 0.02773507825012067,
+      "Feature_dd_18": 0.001243230825583641,
+      "Feature_pd_19": 0.03623275739238219
     },
     "high_correlations": [
       [
@@ -146,26 +146,26 @@
     }
   },
   "model_performance": {
-    "optimal_threshold": 0.08365775644779205,
+    "optimal_threshold": 0.10735540837049484,
     "threshold_metrics": {
-      "tpr": 0.9440203562340967,
-      "fpr": 0.16060508529127776
+      "tpr": 0.9300254452926209,
+      "fpr": 0.15634052140328292
     }
   },
   "financial_impact": {
     "campaign_size": 10000,
-    "total_profit": -1525320.0,
+    "total_profit": -1356915.0,
     "profit_by_risk_band": {
-      "High": -232665.0,
-      "Medium": -463905.0,
-      "Low": -828750.0
+      "High": -211590.0,
+      "Medium": -417975.0,
+      "Low": -727350.0
     },
-    "opportunity_loss": 5580.0,
+    "opportunity_loss": 74945.0,
     "scaled_confusion_matrix": {
-      "true_negatives": 66,
-      "false_positives": 8811,
-      "false_negatives": 5,
-      "true_positives": 1117
+      "true_negatives": 812,
+      "false_positives": 8065,
+      "false_negatives": 59,
+      "true_positives": 1063
     }
   }
 }
