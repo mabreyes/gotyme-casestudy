@@ -13,7 +13,7 @@ lint:
 	mypy src tests
 
 test:
-	pytest tests -v
+	docker-compose run --rm training pytest tests -v
 
 clean:
 	find . -type d -name "__pycache__" -exec rm -rf {} +

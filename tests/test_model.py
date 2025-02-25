@@ -14,28 +14,41 @@ from src.training.train import ModelTrainer
 @pytest.fixture
 def sample_data():
     """Create sample data for testing."""
+    n_samples = 20
+    np.random.seed(42)
+    
+    # Define categorical values
+    job_types = ['admin', 'blue-collar', 'technician']
+    marital_status = ['married', 'single', 'divorced']
+    education = ['primary', 'secondary', 'tertiary']
+    binary_choices = ['yes', 'no']
+    contact_methods = ['cellular', 'telephone']
+    months = ['jan', 'feb', 'mar', 'apr']
+    days = ['mon', 'tue', 'wed', 'thu']
+    outcomes = ['success', 'failure']
+    
     data = {
-        'Feature_ae_0': [25, 30, 35, 40],
-        'Feature_dn_1': [120, 180, 240, 300],
-        'Feature_cn_2': [2, 3, 4, 5],
-        'Feature_ps_3': [10, 20, 30, 40],
-        'Feature_ps_4': [1, 2, 3, 4],
-        'Feature_ee_5': [0.1, 0.2, 0.3, 0.4],
-        'Feature_cx_6': [95, 96, 97, 98],
-        'Feature_cx_7': [80, 82, 84, 86],
-        'Feature_em_8': [1.5, 1.6, 1.7, 1.8],
-        'Feature_nd_9': [1000, 1100, 1200, 1300],
-        'Feature_jd_10': ['admin', 'blue-collar', 'technician', 'admin'],
-        'Feature_md_11': ['married', 'single', 'divorced', 'married'],
-        'Feature_ed_12': ['primary', 'secondary', 'tertiary', 'primary'],
-        'Feature_dd_13': ['no', 'yes', 'no', 'yes'],
-        'Feature_hd_14': ['yes', 'no', 'yes', 'no'],
-        'Feature_ld_15': ['no', 'yes', 'no', 'yes'],
-        'Feature_cd_16': ['cellular', 'telephone', 'cellular', 'telephone'],
-        'Feature_md_17': ['jan', 'feb', 'mar', 'apr'],
-        'Feature_dd_18': ['mon', 'tue', 'wed', 'thu'],
-        'Feature_pd_19': ['success', 'failure', 'success', 'failure'],
-        'Response': [1, 0, 1, 0]  # Now we have 2 samples for each class
+        'Feature_ae_0': np.random.normal(35, 10, n_samples),
+        'Feature_dn_1': np.random.normal(200, 50, n_samples),
+        'Feature_cn_2': np.random.randint(1, 10, n_samples),
+        'Feature_ps_3': np.random.normal(25, 10, n_samples),
+        'Feature_ps_4': np.random.randint(0, 5, n_samples),
+        'Feature_ee_5': np.random.normal(0.3, 0.1, n_samples),
+        'Feature_cx_6': np.random.normal(95, 2, n_samples),
+        'Feature_cx_7': np.random.normal(82, 3, n_samples),
+        'Feature_em_8': np.random.normal(1.6, 0.2, n_samples),
+        'Feature_nd_9': np.random.normal(1100, 100, n_samples),
+        'Feature_jd_10': np.random.choice(job_types, n_samples).astype(str),
+        'Feature_md_11': np.random.choice(marital_status, n_samples).astype(str),
+        'Feature_ed_12': np.random.choice(education, n_samples).astype(str),
+        'Feature_dd_13': np.random.choice(binary_choices, n_samples).astype(str),
+        'Feature_hd_14': np.random.choice(binary_choices, n_samples).astype(str),
+        'Feature_ld_15': np.random.choice(binary_choices, n_samples).astype(str),
+        'Feature_cd_16': np.random.choice(contact_methods, n_samples).astype(str),
+        'Feature_md_17': np.random.choice(months, n_samples).astype(str),
+        'Feature_dd_18': np.random.choice(days, n_samples).astype(str),
+        'Feature_pd_19': np.random.choice(outcomes, n_samples).astype(str),
+        'Response': np.array([1, 0] * (n_samples // 2))
     }
     return pd.DataFrame(data)
 
@@ -51,13 +64,13 @@ def test_data_loader(sample_data, tmp_path):
     
     # Test loading
     df = loader.load_data()
-    assert len(df) == 4  # Updated to match new sample size
+    assert len(df) == 20  # Updated to match new sample size
     assert all(col in df.columns for col in sample_data.columns)
     
     # Test preprocessing
     X, y = loader.preprocess_data(df)
-    assert len(X) == 4  # Updated to match new sample size
-    assert len(y) == 4  # Updated to match new sample size
+    assert len(X) == 20  # Updated to match new sample size
+    assert len(y) == 20  # Updated to match new sample size
     assert all(col in X.columns for col in loader.numerical_features + loader.categorical_features)
 
 
@@ -106,12 +119,12 @@ def test_model_prediction(sample_data, tmp_path):
     
     # Test predictions
     predictions = predictor.predict(sample_data.drop('Response', axis=1))
-    assert len(predictions) == 4  # Updated to match new sample size
+    assert len(predictions) == 20  # Updated to match new sample size
     assert all(isinstance(pred, (np.int64, int)) for pred in predictions)
     
     # Test probabilities
     probabilities = predictor.predict_proba(sample_data.drop('Response', axis=1))
-    assert probabilities.shape == (4, 2)  # Updated to match new sample size
+    assert probabilities.shape == (20, 2)  # Updated to match new sample size
     assert all(0 <= prob <= 1 for prob in probabilities.flatten())
 
 
@@ -124,16 +137,25 @@ def test_financial_analysis(sample_data, tmp_path):
     model_path = tmp_path / 'models'
     model_path.mkdir()
     
+    # Train model with the same data to ensure label encoders are fitted correctly
     trainer = ModelTrainer(data_path, model_path)
     trainer.train()
     
     # Initialize predictor
     predictor = ModelPredictor(model_path)
     
+    # Create test data with the same categorical values
+    test_data = sample_data.copy()
+    
     # Test financial analysis
-    analysis = predictor.analyze_financial_impact(sample_data.drop('Response', axis=1))
+    analysis = predictor.analyze_financial_impact(test_data.drop('Response', axis=1))
+    
+    # Verify the analysis results
+    assert isinstance(analysis, dict)
     assert 'total_profit' in analysis
     assert 'profit_by_risk_band' in analysis
     assert 'opportunity_loss' in analysis
     assert isinstance(analysis['total_profit'], (int, float))
+    assert isinstance(analysis['opportunity_loss'], (int, float))
+    assert isinstance(analysis['profit_by_risk_band'], dict)
     assert all(risk in analysis['profit_by_risk_band'] for risk in ['High', 'Medium', 'Low']) 

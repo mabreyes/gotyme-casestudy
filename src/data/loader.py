@@ -74,7 +74,7 @@ class DataLoader:
 
     def get_train_test_split(
         self,
-        test_size: float = 0.2,
+        test_size: float = 0.4,
         random_state: int = 42
     ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series]:
         """Load and split the data into training and test sets.
