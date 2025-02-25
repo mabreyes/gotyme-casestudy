@@ -108,12 +108,30 @@ class ModelTrainer:
         }
         analyzer.analyze_financial_impact(risk_bands, profit_matrix)
 
-        # Save analysis report
-        analyzer.save_analysis_report()
-
         # Evaluate the model and save metrics
         metrics = self._evaluate_model(X_test, y_test)
         logger.info(f"Model evaluation metrics: {metrics}")
+
+        # Save analysis report
+        try:
+            analyzer.save_analysis_report()
+            logger.info("Analysis report saved successfully")
+        except Exception as e:
+            logger.error(f"Error saving analysis report: {e}")
+            # Create a simplified report with basic metrics
+            try:
+                logger.info("Attempting to create a simplified analysis report...")
+                simplified_results = {
+                    "model_performance": {
+                        "classification_metrics": metrics,
+                        "optimal_threshold": 0.5,
+                    }
+                }
+                with open(self.analysis_path / "analysis_report.json", "w") as f:
+                    json.dump(simplified_results, f, indent=2)
+                logger.info("Simplified analysis report saved successfully")
+            except Exception as e2:
+                logger.error(f"Failed to create simplified report: {e2}")
 
         # Generate visualization plots
         self._generate_plots(X_test, y_test)

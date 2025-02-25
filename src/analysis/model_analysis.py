@@ -12,6 +12,8 @@ from sklearn.feature_selection import mutual_info_classif
 from sklearn.metrics import confusion_matrix, roc_curve
 from sklearn.preprocessing import LabelEncoder
 
+from src.analysis.report_generator import PDFReportGenerator
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -329,23 +331,174 @@ class ModelAnalyzer:
     def save_analysis_report(self) -> None:
         """Save comprehensive analysis results to a JSON file."""
 
-        # Convert numpy types to Python native types for JSON serialization
-        def convert_to_serializable(obj):
-            if isinstance(obj, (np.int64, np.int32)):
-                return int(obj)
-            elif isinstance(obj, (np.float64, np.float32)):
-                return float(obj)
-            elif isinstance(obj, dict):
-                return {k: convert_to_serializable(v) for k, v in obj.items()}
-            elif isinstance(obj, list):
-                return [convert_to_serializable(i) for i in obj]
-            return obj
+        # Define a custom JSON encoder to handle NumPy types
+        class NumpyEncoder(json.JSONEncoder):
+            def default(self, obj):
+                if isinstance(
+                    obj,
+                    (
+                        np.int_,
+                        np.intc,
+                        np.intp,
+                        np.int8,
+                        np.int16,
+                        np.int32,
+                        np.int64,
+                        np.uint8,
+                        np.uint16,
+                        np.uint32,
+                        np.uint64,
+                    ),
+                ):
+                    return int(obj)
+                elif isinstance(obj, (np.float_, np.float16, np.float32, np.float64)):
+                    return float(obj)
+                elif isinstance(obj, np.ndarray):
+                    return obj.tolist()
+                elif isinstance(obj, np.bool_):
+                    return bool(obj)
+                return super(NumpyEncoder, self).default(obj)
 
-        serializable_results = convert_to_serializable(self.analysis_results)
+        try:
+            with open(self.save_path / "analysis_report.json", "w") as f:
+                json.dump(self.analysis_results, f, indent=2, cls=NumpyEncoder)
 
-        with open(self.save_path / "analysis_report.json", "w") as f:
-            json.dump(serializable_results, f, indent=2)
+            logger.info(
+                f"Analysis report saved to {self.save_path / 'analysis_report.json'}"
+            )
+        except Exception as e:
+            logger.error(f"Error serializing analysis results: {e}")
 
-        logger.info(
-            f"Analysis report saved to {self.save_path / 'analysis_report.json'}"
+            # Fallback to converting all items to Python native types
+            def convert_dict(d):
+                result = {}
+                for k, v in d.items():
+                    if isinstance(v, dict):
+                        result[k] = convert_dict(v)
+                    elif isinstance(v, list):
+                        result[k] = [
+                            convert_dict(item) if isinstance(item, dict) else item
+                            for item in v
+                        ]
+                    elif isinstance(v, (np.int64, np.int32, np.int16, np.int8)):
+                        result[k] = int(v)
+                    elif isinstance(v, (np.float64, np.float32, np.float16)):
+                        result[k] = float(v)
+                    elif isinstance(v, np.ndarray):
+                        result[k] = v.tolist()
+                    elif isinstance(v, np.bool_):
+                        result[k] = bool(v)
+                    else:
+                        result[k] = v
+                return result
+
+            serializable_results = convert_dict(self.analysis_results)
+
+            with open(self.save_path / "analysis_report.json", "w") as f:
+                json.dump(serializable_results, f, indent=2)
+
+            logger.info(
+                f"Analysis report saved to {self.save_path / 'analysis_report.json'} (using fallback method)"
+            )
+
+    def generate_pdf_report(self, filename: str = "model_analysis_report.pdf") -> Path:
+        """Generate a professional PDF report with all analysis results.
+
+        Args:
+            filename: Name of the output PDF file
+
+        Returns:
+            Path to the generated PDF file
+        """
+        # Make sure analysis results are saved and serialized
+        if not (self.save_path / "analysis_report.json").exists():
+            self.save_analysis_report()
+
+        # Load the serialized results to ensure we have Python native types
+        with open(self.save_path / "analysis_report.json", "r") as f:
+            serialized_results = json.load(f)
+
+        # Generate plots for the report if they don't exist
+        self._generate_report_plots()
+
+        # Create and use the PDF report generator
+        report_generator = PDFReportGenerator(
+            analysis_results=serialized_results, save_path=self.save_path
         )
+
+        # Generate the PDF report
+        pdf_path = report_generator.generate_report(filename)
+
+        logger.info(f"PDF report generated successfully: {pdf_path}")
+        return pdf_path
+
+    def _generate_report_plots(self) -> None:
+        """Generate plots for the PDF report if they don't exist."""
+        # Feature importance plot
+        if (
+            "feature_relevance" in self.analysis_results
+            and not (self.save_path / "feature_importance.png").exists()
+        ):
+            plt.figure(figsize=(10, 6))
+            feature_importance = self.analysis_results["feature_relevance"][
+                "feature_importance"
+            ]
+            sorted_features = sorted(
+                feature_importance.items(), key=lambda x: x[1], reverse=True
+            )
+            features, importance = zip(*sorted_features)
+
+            plt.barh(range(len(features)), importance, align="center")
+            plt.yticks(range(len(features)), features)
+            plt.xlabel("Importance Score")
+            plt.title("Feature Importance")
+            plt.tight_layout()
+            plt.savefig(self.save_path / "feature_importance.png")
+            plt.close()
+
+        # Class distribution plot
+        if (
+            "class_balance" in self.analysis_results
+            and not (self.save_path / "class_distribution.png").exists()
+        ):
+            plt.figure(figsize=(8, 6))
+            class_dist = self.analysis_results["class_balance"]["class_distribution"]
+            classes = list(class_dist.keys())
+            counts = [info["count"] for info in class_dist.values()]
+
+            plt.bar(classes, counts, color=["skyblue", "salmon"])
+            plt.xlabel("Class")
+            plt.ylabel("Count")
+            plt.title("Class Distribution")
+            plt.tight_layout()
+            plt.savefig(self.save_path / "class_distribution.png")
+            plt.close()
+
+        # ROC curve plot
+        if (
+            "model_performance" in self.analysis_results
+            and not (self.save_path / "roc_curve.png").exists()
+        ):
+            if "roc_curve" in self.analysis_results["model_performance"]:
+                plt.figure(figsize=(8, 6))
+                roc = self.analysis_results["model_performance"]["roc_curve"]
+                fpr = roc["fpr"]
+                tpr = roc["tpr"]
+
+                plt.plot(
+                    fpr,
+                    tpr,
+                    color="darkorange",
+                    lw=2,
+                    label=f'ROC curve (AUC = {roc["auc"]:.2f})',
+                )
+                plt.plot([0, 1], [0, 1], color="navy", lw=2, linestyle="--")
+                plt.xlim([0.0, 1.0])
+                plt.ylim([0.0, 1.05])
+                plt.xlabel("False Positive Rate")
+                plt.ylabel("True Positive Rate")
+                plt.title("Receiver Operating Characteristic (ROC) Curve")
+                plt.legend(loc="lower right")
+                plt.tight_layout()
+                plt.savefig(self.save_path / "roc_curve.png")
+                plt.close()
