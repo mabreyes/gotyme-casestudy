@@ -136,13 +136,36 @@ class PDFReportGenerator:
             return
 
         try:
-            # Adjust width to fit within page margins (letter page is 612 x 792 points)
-            max_width = 400  # Conservative width that works well with default margins
-            if width > max_width:
-                width = max_width
+            # Define max width (letter page is 612 points wide, with margins we have less)
+            max_width = (
+                450  # Conservative max width that works well with default margins
+            )
+
+            # Get original image dimensions to maintain aspect ratio
+            from PIL import Image as PILImage
+
+            try:
+                with PILImage.open(str(image_path)) as img:
+                    img_width, img_height = img.size
+                    aspect_ratio = img_height / img_width
+
+                    # Scale to fit width within max_width
+                    scaled_width = min(width, max_width)
+                    scaled_height = int(scaled_width * aspect_ratio)
+
+                    logger.info(
+                        f"Scaling image {image_path.name} to {scaled_width}x{scaled_height}"
+                    )
+            except Exception as e:
+                logger.warning(
+                    f"Could not determine image dimensions for {image_path.name}: {e}"
+                )
+                # Fallback to provided dimensions
+                scaled_width = min(width, max_width)
+                scaled_height = height
 
             # Add the image with controlled dimensions
-            img = Image(str(image_path), width=width, height=height)
+            img = Image(str(image_path), width=scaled_width, height=scaled_height)
             self.elements.append(img)
             self.elements.append(Spacer(1, 0.2 * 72))  # 0.2-inch spacer
         except Exception as e:
@@ -738,8 +761,13 @@ class PDFReportGenerator:
             bottomMargin=72,
         )
 
-        # Define problematic images to skip
-        self.problematic_images = [
+        # Define potentially problematic images to handle with extra care
+        # Note: With our improved scaling, these might work now, but we keep the list
+        # in case some images still cause issues
+        self.problematic_images = []
+
+        # Previously problematic images that we'll now try to include with proper scaling
+        large_complex_images = [
             "correlation_matrix.png",
             "financial_impact_detailed.png",
         ]
@@ -758,10 +786,11 @@ class PDFReportGenerator:
             "The insights provided in this report aim to support data-driven decision making."
         )
 
-        # Note about skipped images
+        # Note about image handling
         image_note = (
-            "Note: Some complex visualization images may not be included in this PDF due to formatting constraints. "
-            "These images can be viewed directly in the project's models/plots directory."
+            "All visualization images have been automatically scaled to fit this report while maintaining "
+            "their aspect ratio for optimal viewing. Some highly detailed visualizations may be better viewed "
+            "in their original form in the project's models/plots directory."
         )
         self._add_paragraph(image_note)
 
@@ -803,19 +832,29 @@ class PDFReportGenerator:
                 if match:
                     problematic_file = match.group(1)
                     logger.warning(f"Identified problematic file: {problematic_file}")
-                    self.problematic_images.append(problematic_file.split("/")[-1])
+                    problematic_image = problematic_file.split("/")[-1]
+                    self.problematic_images.append(problematic_image)
+
+                    # Add the problematic image to our list for future reference
+                    if problematic_image not in large_complex_images:
+                        large_complex_images.append(problematic_image)
+
+                    logger.warning(
+                        f"Will retry without problematic image: {problematic_image}"
+                    )
 
                     # Create a new set of elements without the problematic images
                     filtered_elements = []
                     for element in self.elements:
                         skip = False
-                        for img_name in self.problematic_images:
-                            if (
-                                hasattr(element, "filename")
-                                and img_name in element.filename
-                            ):
-                                skip = True
-                                break
+                        if hasattr(element, "filename"):
+                            for img_name in self.problematic_images:
+                                if img_name in element.filename:
+                                    skip = True
+                                    logger.info(
+                                        f"Skipping problematic image: {img_name}"
+                                    )
+                                    break
                         if not skip:
                             filtered_elements.append(element)
 
@@ -858,6 +897,19 @@ class PDFReportGenerator:
                         self.normal_style,
                     )
                 )
+
+                # Add a note about the problematic images
+                if self.problematic_images:
+                    simplified_elements.append(Spacer(1, 0.2 * 72))
+                    simplified_elements.append(
+                        Paragraph("Problematic Images:", self.styles["Heading3"])
+                    )
+                    simplified_elements.append(Spacer(1, 0.1 * 72))
+                    problematic_text = "The following images could not be included in the report due to formatting constraints: "
+                    problematic_text += ", ".join(self.problematic_images)
+                    simplified_elements.append(
+                        Paragraph(problematic_text, self.normal_style)
+                    )
 
                 # Save the simplified report
                 simple_doc = SimpleDocTemplate(
