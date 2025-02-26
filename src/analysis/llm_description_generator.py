@@ -157,6 +157,171 @@ class LLMDescriptionGenerator:
 
         return self._get_fallback_description(section)
 
+    def generate_data_quality_description(self, data_quality: Dict[str, Any]) -> str:
+        """Generate a description of data quality assessment.
+
+        Args:
+            data_quality: Dictionary containing data quality information
+
+        Returns:
+            Description of data quality insights
+        """
+        # Extract key data quality information
+        missing_values = data_quality.get("missing_values", {})
+        outliers = data_quality.get("outliers", {})
+        distributions = data_quality.get("distributions", {})
+
+        # Calculate total missing values and outliers
+        total_missing = sum(count for feature, count in missing_values.items())
+        total_outliers = sum(count for feature, count in outliers.items())
+
+        # Find features with most outliers
+        outlier_features = sorted(
+            outliers.items(),
+            key=lambda x: x[1] if isinstance(x[1], (int, float)) else 0,
+            reverse=True,
+        )
+
+        # Find skewed distributions
+        skewed_features = []
+        for feature, dist in distributions.items():
+            if "skew" in dist and abs(dist["skew"]) > 1.0:
+                skewed_features.append((feature, dist["skew"]))
+
+        # Create context for the prompt
+        context = {
+            "feature_count": len(missing_values),
+            "total_missing": total_missing,
+            "total_outliers": total_outliers,
+            "most_outliers": outlier_features[0][0] if outlier_features else "N/A",
+            "most_outliers_count": outlier_features[0][1] if outlier_features else 0,
+            "skewed_features": ", ".join(
+                [f"{f} (skew={s:.2f})" for f, s in skewed_features[:3]]
+            )
+            if skewed_features
+            else "None significant",
+            "avg_skew": sum(abs(dist.get("skew", 0)) for dist in distributions.values())
+            / len(distributions)
+            if distributions
+            else 0,
+        }
+
+        # Define the prompt template
+        prompt = """
+        Analyze the data quality assessment for a machine learning dataset.
+
+        Data Quality Information:
+        - Total Features: {feature_count}
+        - Total Missing Values: {total_missing}
+        - Total Outliers: {total_outliers}
+        - Feature with Most Outliers: {most_outliers} ({most_outliers_count} outliers)
+        - Most Skewed Features: {skewed_features}
+        - Average Absolute Skew: {avg_skew:.2f}
+
+        Provide a brief, insightful interpretation of these data quality metrics, highlighting:
+        1. Overall data completeness and quality
+        2. Potential challenges with outliers or skewed distributions
+        3. Implications for model development and performance
+
+        Keep your explanation under 150 words and focus on practical insights.
+
+        Analysis:
+        """
+
+        return self.generate_description(context, prompt, "data_quality")
+
+    def generate_class_balance_description(self, class_balance: Dict[str, Any]) -> str:
+        """Generate a description of class balance information.
+
+        Args:
+            class_balance: Dictionary containing class balance information
+
+        Returns:
+            Description of class balance insights, including SMOTE information if available
+        """
+        # Extract class balance information
+        class_counts = class_balance.get("class_counts", {})
+        class_proportions = class_balance.get("class_proportions", {})
+
+        # Extract SMOTE information if available
+        smote_info = class_balance.get("smote_results", {})
+        smote_applied = bool(smote_info)
+
+        # Calculate imbalance ratio
+        counts = list(class_counts.values())
+        imbalance_ratio = max(counts) / min(counts) if min(counts) > 0 else "high"
+
+        # Determine minority and majority classes
+        if len(class_counts) >= 2:
+            sorted_classes = sorted(class_counts.items(), key=lambda x: x[1])
+            minority_class = sorted_classes[0][0]
+            majority_class = sorted_classes[-1][0]
+            minority_count = sorted_classes[0][1]
+            majority_count = sorted_classes[-1][1]
+        else:
+            minority_class = majority_class = "unknown"
+            minority_count = majority_count = 0
+
+        # Create context for the prompt
+        context = {
+            "class_count": len(class_counts),
+            "minority_class": minority_class,
+            "majority_class": majority_class,
+            "minority_count": minority_count,
+            "majority_count": majority_count,
+            "imbalance_ratio": f"{imbalance_ratio:.2f}"
+            if isinstance(imbalance_ratio, (int, float))
+            else imbalance_ratio,
+            "smote_applied": "Yes" if smote_applied else "No",
+            "minority_before": smote_info.get("before", {}).get("minority_count", "N/A")
+            if smote_applied
+            else "N/A",
+            "minority_after": smote_info.get("after", {}).get("minority_count", "N/A")
+            if smote_applied
+            else "N/A",
+        }
+
+        # Define the prompt template
+        prompt = """
+        Analyze the class balance for a machine learning classification dataset.
+
+        Class Balance Information:
+        - Number of Classes: {class_count}
+        - Majority Class: {majority_class} ({majority_count} samples)
+        - Minority Class: {minority_class} ({minority_count} samples)
+        - Imbalance Ratio: {imbalance_ratio}
+        - SMOTE Applied: {smote_applied}
+
+        {smote_details}
+
+        Provide a brief, insightful interpretation of the class balance, highlighting:
+        1. The severity of class imbalance and its potential impact on model performance
+        2. How the applied resampling techniques (if any) might help address imbalance issues
+        3. Recommended approaches for handling this class distribution in model development
+
+        Keep your explanation under 150 words and focus on practical implications.
+
+        Analysis:
+        """
+
+        # Add SMOTE details if available
+        smote_details = ""
+        if smote_applied:
+            smote_details = f"""
+            SMOTE Results:
+            - Minority Class Count Before: {context['minority_before']}
+            - Minority Class Count After: {context['minority_after']}
+            - Resampling Method: Synthetic Minority Over-sampling TEchnique (SMOTE)
+            """
+        else:
+            smote_details = (
+                "No resampling techniques were applied to address class imbalance."
+            )
+
+        context["smote_details"] = smote_details
+
+        return self.generate_description(context, prompt, "class_balance")
+
     def generate_feature_importance_description(
         self, feature_importance: Dict[str, float]
     ) -> str:
@@ -176,25 +341,42 @@ class LLMDescriptionGenerator:
         )
         top_features = sorted_features[:5]
 
+        # Get least important features
+        bottom_features = sorted_features[-3:] if len(sorted_features) > 3 else []
+
         # Create context for the prompt
         context = {
             "top_features": ", ".join(
                 [f"{feature} ({score:.4f})" for feature, score in top_features]
             ),
+            "bottom_features": ", ".join(
+                [f"{feature} ({score:.4f})" for feature, score in bottom_features]
+            ),
             "feature_count": len(feature_importance),
             "top_feature": top_features[0][0] if top_features else "N/A",
             "top_feature_score": f"{top_features[0][1]:.4f}" if top_features else "N/A",
+            "importance_spread": top_features[0][1] / bottom_features[0][1]
+            if top_features and bottom_features and bottom_features[0][1] > 0
+            else "N/A",
         }
 
         # Define the prompt template
         prompt = """
         Analyze the importance of features in a machine learning model.
 
-        Here are the top 5 most important features out of {feature_count} total features:
-        {top_features}
+        Feature Importance Information:
+        - Total Features: {feature_count}
+        - Top 5 Features: {top_features}
+        - Least Important Features: {bottom_features}
+        - Most Important Feature: {top_feature} (score: {top_feature_score})
+        - Importance Ratio (top/bottom): {importance_spread}
 
         Provide a brief, insightful description of what these results suggest about the model and data.
-        Focus on explaining which features drive predictions the most and what that means for the business context.
+        Focus on explaining:
+        1. Which features drive predictions the most and what business factors they represent
+        2. What the spread of importance values tells us about feature redundancy
+        3. How these insights can inform feature engineering or business decisions
+
         Keep your explanation under 150 words and make it easy to understand.
 
         Description:
@@ -232,14 +414,17 @@ class LLMDescriptionGenerator:
             "f1_score": f"{metrics.get('f1_score', 'N/A'):.4f}"
             if isinstance(metrics.get("f1_score"), (int, float))
             else "N/A",
+            "auc": f"{metrics.get('auc', 'N/A'):.4f}"
+            if isinstance(metrics.get("auc"), (int, float))
+            else "N/A",
             "threshold": f"{threshold:.4f}"
             if isinstance(threshold, (int, float))
             else "N/A",
-            "tpr": f"{threshold_metrics.get('true_positive_rate', 'N/A'):.4f}"
-            if isinstance(threshold_metrics.get("true_positive_rate"), (int, float))
+            "tpr": f"{threshold_metrics.get('tpr', 'N/A'):.4f}"
+            if isinstance(threshold_metrics.get("tpr"), (int, float))
             else "N/A",
-            "fpr": f"{threshold_metrics.get('false_positive_rate', 'N/A'):.4f}"
-            if isinstance(threshold_metrics.get("false_positive_rate"), (int, float))
+            "fpr": f"{threshold_metrics.get('fpr', 'N/A'):.4f}"
+            if isinstance(threshold_metrics.get("fpr"), (int, float))
             else "N/A",
         }
 
@@ -252,14 +437,17 @@ class LLMDescriptionGenerator:
         - Precision: {precision}
         - Recall: {recall}
         - F1 Score: {f1_score}
+        - AUC: {auc}
         - Optimal Threshold: {threshold}
         - True Positive Rate at threshold: {tpr}
         - False Positive Rate at threshold: {fpr}
 
         Provide a brief, insightful interpretation of these metrics, highlighting:
-        1. Overall model quality
-        2. Trade-offs between precision and recall
-        3. What these results mean for business decision-making
+        1. Overall model quality and reliability
+        2. Trade-offs between precision and recall at the selected threshold
+        3. What these results mean for business decision-making and customer targeting
+        4. Recommendations for potential model improvements or deployment considerations
+
         Keep your explanation under 150 words and make it easy for non-technical stakeholders to understand.
 
         Analysis:
@@ -273,75 +461,172 @@ class LLMDescriptionGenerator:
         """Generate a description of financial impact analysis.
 
         Args:
-            financial_data: Dictionary containing financial impact analysis
+            financial_data: Dictionary containing financial impact information
 
         Returns:
             Description of financial impact insights
         """
-        # Extract key financial data
-        total_profit = financial_data.get("total_profit", "N/A")
-        opportunity_loss = financial_data.get("opportunity_loss", "N/A")
-        roi = financial_data.get("roi", "N/A")
+        # Extract key financial metrics
         campaign_size = financial_data.get("campaign_size", "N/A")
+        total_profit = financial_data.get("total_profit", "N/A")
+        roi = financial_data.get("roi", "N/A")
+        opportunity_loss = financial_data.get("opportunity_loss", "N/A")
 
-        # Get profit by risk band
+        # Extract profit by risk band if available
         profit_by_risk = financial_data.get("profit_by_risk_band", {})
+        risk_bands = list(profit_by_risk.keys())
+
+        # Extract confusion matrix data if available
+        cm = financial_data.get("scaled_confusion_matrix", {})
+        true_positives = cm.get("true_positives", "N/A")
+        false_positives = cm.get("false_positives", "N/A")
+        false_negatives = cm.get("false_negatives", "N/A")
 
         # Create context for the prompt
         context = {
-            "total_profit": f"${total_profit:.2f}"
-            if isinstance(total_profit, (int, float))
-            else "N/A",
-            "opportunity_loss": f"${opportunity_loss:.2f}"
-            if isinstance(opportunity_loss, (int, float))
-            else "N/A",
-            "roi": f"{roi:.2f}%" if isinstance(roi, (int, float)) else "N/A",
             "campaign_size": f"{campaign_size:,}"
             if isinstance(campaign_size, (int, float))
+            else campaign_size,
+            "total_profit": f"${total_profit:.2f}"
+            if isinstance(total_profit, (int, float))
+            else total_profit,
+            "roi": f"{roi:.2f}%" if isinstance(roi, (int, float)) else roi,
+            "opportunity_loss": f"${opportunity_loss:.2f}"
+            if isinstance(opportunity_loss, (int, float))
+            else opportunity_loss,
+            "risk_bands": ", ".join(risk_bands) if risk_bands else "N/A",
+            "most_profitable_band": max(profit_by_risk.items(), key=lambda x: x[1])[0]
+            if profit_by_risk
             else "N/A",
-            "high_risk_profit": f"${profit_by_risk.get('High', 'N/A'):.2f}"
-            if isinstance(profit_by_risk.get("High"), (int, float))
-            else "N/A",
-            "medium_risk_profit": f"${profit_by_risk.get('Medium', 'N/A'):.2f}"
-            if isinstance(profit_by_risk.get("Medium"), (int, float))
-            else "N/A",
-            "low_risk_profit": f"${profit_by_risk.get('Low', 'N/A'):.2f}"
-            if isinstance(profit_by_risk.get("Low"), (int, float))
+            "true_positives": f"{true_positives:,}"
+            if isinstance(true_positives, (int, float))
+            else true_positives,
+            "false_positives": f"{false_positives:,}"
+            if isinstance(false_positives, (int, float))
+            else false_positives,
+            "false_negatives": f"{false_negatives:,}"
+            if isinstance(false_negatives, (int, float))
+            else false_negatives,
+        }
+
+        # Prompt template for financial impact
+        prompt_template = """
+        You are a financial analyst explaining the results of a predictive model's financial impact.
+
+        Here are the key financial metrics:
+        - Campaign size: {campaign_size} customers
+        - Total profit: {total_profit}
+        - Return on Investment (ROI): {roi}
+        - Opportunity loss: {opportunity_loss}
+        - Risk bands: {risk_bands}
+        - Most profitable risk band: {most_profitable_band}
+        - True positives (correctly targeted): {true_positives}
+        - False positives (incorrectly targeted): {false_positives}
+        - False negatives (missed opportunities): {false_negatives}
+
+        Write a concise paragraph (3-5 sentences) explaining what these financial metrics mean for the business.
+        Focus on the profit potential, ROI, and how the model's predictions translate to financial outcomes.
+        Explain the implications of the risk bands and what they mean for targeting strategy.
+
+        Your explanation:
+        """
+
+        return self.generate_description(context, prompt_template, "financial_impact")
+
+    def generate_executive_summary_description(
+        self, analysis_results: Dict[str, Any]
+    ) -> str:
+        """Generate an executive summary description of the entire analysis.
+
+        Args:
+            analysis_results: Dictionary containing all analysis results
+
+        Returns:
+            Executive summary description
+        """
+        # Extract key metrics from different sections
+        data_quality = analysis_results.get("data_quality", {})
+        feature_relevance = analysis_results.get("feature_relevance", {})
+        class_balance = analysis_results.get("class_balance", {})
+        model_performance = analysis_results.get("model_performance", {})
+        financial_impact = analysis_results.get("financial_impact", {})
+
+        # Get key performance metrics
+        metrics = model_performance.get("classification_metrics", {})
+        accuracy = metrics.get("accuracy", "N/A")
+        precision = metrics.get("precision", "N/A")
+        recall = metrics.get("recall", "N/A")
+        f1 = metrics.get("f1_score", "N/A")
+
+        # Get financial metrics
+        total_profit = financial_impact.get("total_profit", "N/A")
+        roi = financial_impact.get("roi", "N/A")
+
+        # Get top features if available
+        feature_importance = feature_relevance.get("feature_importance", {})
+        top_features = []
+        if feature_importance:
+            sorted_features = sorted(
+                feature_importance.items(),
+                key=lambda x: float(x[1]) if isinstance(x[1], (int, float, str)) else 0,
+                reverse=True,
+            )
+            top_features = [f[0] for f in sorted_features[:3]]
+
+        # Get class distribution
+        class_counts = class_balance.get("class_counts", {})
+
+        # Create context for the prompt
+        context = {
+            "accuracy": f"{accuracy:.2%}"
+            if isinstance(accuracy, (int, float))
+            else accuracy,
+            "precision": f"{precision:.2%}"
+            if isinstance(precision, (int, float))
+            else precision,
+            "recall": f"{recall:.2%}" if isinstance(recall, (int, float)) else recall,
+            "f1": f"{f1:.2%}" if isinstance(f1, (int, float)) else f1,
+            "total_profit": f"${total_profit:,.2f}"
+            if isinstance(total_profit, (int, float))
+            else total_profit,
+            "roi": f"{roi:.2f}%" if isinstance(roi, (int, float)) else roi,
+            "top_features": ", ".join(top_features) if top_features else "N/A",
+            "class_distribution": ", ".join(
+                [f"{k}: {v}" for k, v in class_counts.items()]
+            )
+            if class_counts
             else "N/A",
         }
 
-        # Define the prompt template
-        prompt = """
-        Analyze the financial impact of a predictive model for a sales campaign.
+        # Prompt template for executive summary
+        prompt_template = """
+        You are a data science consultant presenting a machine learning model analysis to business executives.
 
-        Financial Impact Analysis:
-        - Total Profit: {total_profit}
-        - Opportunity Loss: {opportunity_loss}
-        - ROI: {roi}
-        - Campaign Size: {campaign_size} customers
+        Here are the key findings from the analysis:
+        - Model accuracy: {accuracy}
+        - Precision: {precision}
+        - Recall: {recall}
+        - F1 score: {f1}
+        - Total projected profit: {total_profit}
+        - Return on Investment: {roi}
+        - Top predictive features: {top_features}
+        - Class distribution: {class_distribution}
 
-        Profit by Risk Band:
-        - High Risk: {high_risk_profit}
-        - Medium Risk: {medium_risk_profit}
-        - Low Risk: {low_risk_profit}
+        Write a comprehensive executive summary (4-6 sentences) that explains the overall performance and business value of the model.
+        Focus on what these metrics mean for the business in practical terms.
+        Highlight the model's strengths, potential financial impact, and key drivers of predictions.
+        Use business language rather than technical jargon.
 
-        Provide a brief, insightful interpretation of these financial results, highlighting:
-        1. The overall financial performance of the model
-        2. The distribution of profit across risk bands
-        3. Recommendations for optimizing campaign ROI
-
-        Keep your explanation under 150 words and focus on business implications.
-
-        Analysis:
+        Your executive summary:
         """
 
-        return self.generate_description(context, prompt, "financial_impact")
+        return self.generate_description(context, prompt_template, "executive_summary")
 
     def _get_fallback_description(self, section: str) -> str:
-        """Return a static fallback description when LLM generation fails.
+        """Get a fallback static description when LLM generation fails.
 
         Args:
-            section: Name of the section to get fallback description for
+            section: The section name to get fallback description for
 
         Returns:
             Static fallback description

@@ -58,12 +58,19 @@ This project implements a machine learning solution to predict whether a custome
   - Opportunity loss calculation
   - ROI optimization
 
+- **✨ AI-POWERED INSIGHTS & DESCRIPTIONS ✨**:
+  - Automatic translation of complex metrics into business language
+  - LLM-generated explanations of model performance and financial impact
+  - Context-aware analysis of data quality and feature importance
+  - Makes reports accessible to non-technical stakeholders
+
 - **Detailed PDF report generation**:
   - Professional reports with ReportLab
   - Auto-scaled visualizations
   - Data quality summaries
   - Feature relevance analysis
   - Performance metrics and interpretations
+  - Integration with AI-generated insights
 
 - **REST API for predictions and analysis**:
   - `/train` endpoint for model training
@@ -90,6 +97,7 @@ This project implements a machine learning solution to predict whether a custome
 - matplotlib, seaborn: Visualization
 - reportlab, pillow: PDF report generation
 - pytest: Unit testing
+- llama-cpp-python or transformers: LLM inference (optional, for AI-generated descriptions)
 
 ## Installation
 
@@ -450,6 +458,7 @@ The project generates comprehensive PDF reports that include:
 - Class balance analysis with distributions
 - Model performance metrics and visualization
 - Financial impact analysis with risk-band breakdown
+- **AI-generated insights and descriptions for each section**
 
 Images in the report are automatically scaled to fit the page width while maintaining their aspect ratio, ensuring optimal readability.
 
@@ -461,6 +470,86 @@ open models/analysis/model_analysis_report.pdf
 
 # For Windows
 start models/analysis/model_analysis_report.pdf
+```
+
+## ✨ AI-Generated Descriptions ✨
+
+The PDF reports now include **AI-generated insights and descriptions** powered by a large language model (LLM). These insights help translate complex metrics and analysis results into clear business explanations, making the reports more accessible to non-technical stakeholders.
+
+### Features
+
+- **Automatic generation of explanatory text** for all analysis sections
+- **Contextual interpretations** of key metrics and trends
+- **Business implications** of statistical findings
+- **Visually distinct formatting** for AI-generated content
+- Makes reports accessible to stakeholders without statistical expertise
+
+### Setting Up the LLM Model
+
+For the AI descriptions to work, you need to download the TinyLlama model file:
+
+1. Create a directory for the model:
+   ```bash
+   mkdir -p models/llm
+   ```
+
+2. Download the TinyLlama model file (638MB):
+   ```bash
+   # Using curl
+   curl -L https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf -o models/llm/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf
+
+   # Using wget
+   wget https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf -O models/llm/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf
+   ```
+
+3. Install required dependencies:
+   ```bash
+   # Option 1: For llama-cpp-python (recommended, faster)
+   pip install llama-cpp-python
+
+   # Option 2: For transformers backend
+   pip install transformers torch
+   ```
+
+### Controlling AI Descriptions
+
+When generating PDF reports, you can control the LLM feature with these options:
+
+```bash
+# Generate a report with AI descriptions (default if model is available)
+make generate-pdf-report
+
+# Generate a report without AI descriptions
+make generate-pdf-report USE_LLM_DESCRIPTIONS=0
+
+# Specify a custom model path
+make generate-pdf-report LLM_MODEL_PATH="/path/to/your/model.gguf"
+
+# Use transformers instead of llama-cpp
+make generate-pdf-report USE_TRANSFORMERS=1
+```
+
+These options can also be passed as environment variables:
+
+```bash
+# Set environment variables before calling make
+export USE_LLM_DESCRIPTIONS=1
+export LLM_MODEL_PATH="/path/to/your/model.gguf"
+export USE_TRANSFORMERS=0
+
+make generate-pdf-report
+```
+
+### AI Insights in Docker
+
+You can also use AI-generated insights when generating reports with Docker:
+
+```bash
+# Generate with default settings
+make generate-docker-pdf-report
+
+# Generate with custom settings
+make generate-docker-pdf-report USE_LLM_DESCRIPTIONS=1 LLM_MODEL_PATH="/app/models/llm/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf"
 ```
 
 ## Troubleshooting

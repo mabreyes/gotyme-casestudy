@@ -259,6 +259,17 @@ class PDFReportGenerator:
 
         data_quality = self.analysis_results["data_quality"]
 
+        # Add LLM-generated data quality description if available
+        if self.use_llm_descriptions and self.llm_generator:
+            try:
+                llm_description = self.llm_generator.generate_data_quality_description(
+                    data_quality
+                )
+                self._add_subsection_header("Data Quality Overview")
+                self._add_llm_description(llm_description)
+            except Exception as e:
+                logger.warning(f"Failed to generate LLM data quality description: {e}")
+
         # Add missing values summary if available
         if "missing_values" in data_quality:
             self._add_subsection_header("Missing Values Summary")
@@ -282,6 +293,48 @@ class PDFReportGenerator:
 
                 missing_data.append([feature, count, percentage])
             self._add_table(missing_data)
+
+        # Add outliers summary if available
+        if "outliers" in data_quality:
+            self._add_subsection_header("Outliers Summary")
+            outliers_data = [["Feature", "Outlier Count"]]
+            for feature, count in data_quality["outliers"].items():
+                outliers_data.append([feature, str(count)])
+            self._add_table(outliers_data)
+
+            self._add_paragraph(
+                "Outliers represent data points that significantly deviate from the typical distribution "
+                "pattern. These may represent unusual customer behavior or data quality issues. High outlier "
+                "counts in key features may impact model performance and require special handling."
+            )
+
+        # Add distributions summary if available
+        if "distributions" in data_quality:
+            self._add_subsection_header("Feature Distributions")
+            dist_data = [["Feature", "Mean", "Std Dev", "Skewness"]]
+            for feature, stats in data_quality["distributions"].items():
+                try:
+                    dist_data.append(
+                        [
+                            feature,
+                            f"{stats['mean']:.2f}",
+                            f"{stats['std']:.2f}",
+                            f"{stats['skew']:.2f}",
+                        ]
+                    )
+                except (KeyError, TypeError, ValueError) as e:
+                    # Handle missing or invalid statistics
+                    logger.warning(
+                        f"Invalid distribution stats for feature {feature}: {e}"
+                    )
+                    dist_data.append([feature, "N/A", "N/A", "N/A"])
+            self._add_table(dist_data)
+
+            self._add_paragraph(
+                "Feature distributions provide insight into the central tendency and spread of each variable. "
+                "Skewness values above 1.0 or below -1.0 indicate significant asymmetry in the distribution, "
+                "which may affect model training and require transformation techniques."
+            )
 
         # Add data types summary if available
         if "data_types" in data_quality:
@@ -324,6 +377,145 @@ class PDFReportGenerator:
             self.elements.append(Paragraph(description, self.llm_description_style))
             self.elements.append(Spacer(1, 0.1 * 72))
 
+    def _add_class_balance_section(self) -> None:
+        """Add class balance analysis section to the report."""
+        if "class_balance" not in self.analysis_results:
+            return
+
+        self._add_section_header("Class Balance Analysis")
+
+        class_balance = self.analysis_results["class_balance"]
+
+        # Add LLM-generated class balance description if available
+        if self.use_llm_descriptions and self.llm_generator:
+            try:
+                llm_description = self.llm_generator.generate_class_balance_description(
+                    class_balance
+                )
+                self._add_subsection_header("Class Balance Overview")
+                self._add_llm_description(llm_description)
+            except Exception as e:
+                logger.warning(f"Failed to generate LLM class balance description: {e}")
+
+        # Add class counts if available
+        if "class_counts" in class_balance:
+            self._add_subsection_header("Class Counts")
+            class_counts_data = [["Class", "Count"]]
+            for cls, count in class_balance["class_counts"].items():
+                class_counts_data.append([cls, str(count)])
+            self._add_table(class_counts_data)
+
+        # Add class proportions if available
+        if "class_proportions" in class_balance:
+            self._add_subsection_header("Class Proportions")
+            class_proportions_data = [["Class", "Proportion"]]
+            for cls, proportion in class_balance["class_proportions"].items():
+                try:
+                    class_proportions_data.append([cls, f"{float(proportion):.2%}"])
+                except (ValueError, TypeError):
+                    class_proportions_data.append([cls, str(proportion)])
+            self._add_table(class_proportions_data)
+
+        # Add SMOTE results if available
+        if "smote_results" in class_balance:
+            self._add_subsection_header("SMOTE Resampling Results")
+            smote_results = class_balance["smote_results"]
+
+            # Create a table showing before and after counts
+            smote_data = [["Metric", "Before SMOTE", "After SMOTE"]]
+
+            # Get before and after metrics
+            before = smote_results.get("before", {})
+            after = smote_results.get("after", {})
+
+            # Add minority class counts
+            smote_data.append(
+                [
+                    "Minority Class Count",
+                    str(before.get("minority_count", "N/A")),
+                    str(after.get("minority_count", "N/A")),
+                ]
+            )
+
+            # Add majority class counts
+            smote_data.append(
+                [
+                    "Majority Class Count",
+                    str(before.get("majority_count", "N/A")),
+                    str(after.get("majority_count", "N/A")),
+                ]
+            )
+
+            # Add class ratios
+            try:
+                before_ratio = before.get("class_ratio", "N/A")
+                if isinstance(before_ratio, (int, float)):
+                    before_ratio = f"1:{before_ratio:.2f}"
+            except (ValueError, TypeError):
+                before_ratio = str(before.get("class_ratio", "N/A"))
+
+            try:
+                after_ratio = after.get("class_ratio", "N/A")
+                if isinstance(after_ratio, (int, float)):
+                    after_ratio = f"1:{after_ratio:.2f}"
+            except (ValueError, TypeError):
+                after_ratio = str(after.get("class_ratio", "N/A"))
+
+            smote_data.append(
+                ["Class Ratio (Minority:Majority)", before_ratio, after_ratio]
+            )
+
+            self._add_table(smote_data)
+
+            # Add explanation of SMOTE
+            self._add_paragraph(
+                "Synthetic Minority Over-sampling Technique (SMOTE) is an approach to address class imbalance "
+                "by generating synthetic samples for the minority class. This technique helps prevent the model "
+                "from being biased toward the majority class and improves the ability to detect minority class instances, "
+                "which are often of higher business value in scenarios like fraud detection or customer response prediction."
+            )
+
+        # Add class distribution if available
+        if "class_distribution" in class_balance:
+            self._add_subsection_header("Class Distribution")
+            class_data = [["Class", "Count", "Percentage"]]
+            for cls, values in class_balance["class_distribution"].items():
+                # Handle both dictionary format and integer format
+                if isinstance(values, dict):
+                    # Dictionary format: {"count": X, "percentage": Y}
+                    count = str(values["count"])
+                    percentage = f"{values['percentage']:.2f}%"
+                else:
+                    # Integer format: values is just a count
+                    count = str(values)
+                    # Calculate percentage (assume total is sum of all values)
+                    total = sum(
+                        val if isinstance(val, int) else val.get("count", 0)
+                        for val in class_balance["class_distribution"].values()
+                    )
+                    percentage = (
+                        f"{(values / total * 100):.2f}%" if total > 0 else "0.00%"
+                    )
+
+                class_data.append([cls, count, percentage])
+            self._add_table(class_data)
+
+        # Add interpretation of class balance
+        imbalance_message = (
+            "Class imbalance can significantly impact model performance. "
+        )
+        if (
+            "class_proportions" in class_balance
+            or "class_distribution" in class_balance
+        ):
+            imbalance_message += "The distribution shown above indicates the relative frequency of each class in the dataset."
+        self._add_paragraph(imbalance_message)
+
+        # Add class distribution plot if available
+        class_dist_plot = self.save_path / "class_distribution.png"
+        if class_dist_plot.exists():
+            self._add_image(class_dist_plot)
+
     def _add_feature_relevance_section(self) -> None:
         """Add feature relevance analysis section to the report."""
         if "feature_relevance" not in self.analysis_results:
@@ -359,6 +551,23 @@ class PDFReportGenerator:
                 "variable when observing each feature. Higher values indicate stronger relevance "
                 "to the prediction task."
             )
+
+            # Add LLM-generated feature importance description based on mutual information
+            if self.use_llm_descriptions and self.llm_generator and len(sorted_mi) > 0:
+                try:
+                    # Convert to the format expected by the feature importance description method
+                    mi_dict = {feature: score for feature, score in sorted_mi}
+                    llm_description = (
+                        self.llm_generator.generate_feature_importance_description(
+                            mi_dict
+                        )
+                    )
+                    self._add_subsection_header("Mutual Information Insights")
+                    self._add_llm_description(llm_description)
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to generate LLM mutual information description: {e}"
+                    )
 
         # Add feature importance if available
         if "feature_importance" in feature_relevance:
@@ -459,75 +668,6 @@ class PDFReportGenerator:
 
             # The _add_image method will automatically handle problematic images
             self._add_image(correlation_matrix_plot)
-
-    def _add_class_balance_section(self) -> None:
-        """Add class balance analysis section to the report."""
-        if "class_balance" not in self.analysis_results:
-            return
-
-        self._add_section_header("Class Balance Analysis")
-
-        class_balance = self.analysis_results["class_balance"]
-
-        # Add class counts if available
-        if "class_counts" in class_balance:
-            self._add_subsection_header("Class Counts")
-            class_counts_data = [["Class", "Count"]]
-            for cls, count in class_balance["class_counts"].items():
-                class_counts_data.append([cls, str(count)])
-            self._add_table(class_counts_data)
-
-        # Add class proportions if available
-        if "class_proportions" in class_balance:
-            self._add_subsection_header("Class Proportions")
-            class_proportions_data = [["Class", "Proportion"]]
-            for cls, proportion in class_balance["class_proportions"].items():
-                try:
-                    class_proportions_data.append([cls, f"{float(proportion):.2%}"])
-                except (ValueError, TypeError):
-                    class_proportions_data.append([cls, str(proportion)])
-            self._add_table(class_proportions_data)
-
-        # Add class distribution if available
-        if "class_distribution" in class_balance:
-            self._add_subsection_header("Class Distribution")
-            class_data = [["Class", "Count", "Percentage"]]
-            for cls, values in class_balance["class_distribution"].items():
-                # Handle both dictionary format and integer format
-                if isinstance(values, dict):
-                    # Dictionary format: {"count": X, "percentage": Y}
-                    count = str(values["count"])
-                    percentage = f"{values['percentage']:.2f}%"
-                else:
-                    # Integer format: values is just a count
-                    count = str(values)
-                    # Calculate percentage (assume total is sum of all values)
-                    total = sum(
-                        val if isinstance(val, int) else val.get("count", 0)
-                        for val in class_balance["class_distribution"].values()
-                    )
-                    percentage = (
-                        f"{(values / total * 100):.2f}%" if total > 0 else "0.00%"
-                    )
-
-                class_data.append([cls, count, percentage])
-            self._add_table(class_data)
-
-        # Add interpretation of class balance
-        imbalance_message = (
-            "Class imbalance can significantly impact model performance. "
-        )
-        if (
-            "class_proportions" in class_balance
-            or "class_distribution" in class_balance
-        ):
-            imbalance_message += "The distribution shown above indicates the relative frequency of each class in the dataset."
-        self._add_paragraph(imbalance_message)
-
-        # Add class distribution plot if available
-        class_dist_plot = self.save_path / "class_distribution.png"
-        if class_dist_plot.exists():
-            self._add_image(class_dist_plot)
 
     def _add_model_performance_section(self) -> None:
         """Add model performance analysis section to the report."""
@@ -685,6 +825,27 @@ class PDFReportGenerator:
                 "which represents the best balance between true positive rate and false positive rate."
             )
 
+    def _add_executive_summary(self) -> None:
+        """Add executive summary section to the report."""
+        self._add_section_header("Executive Summary")
+        if self.use_llm_descriptions and self.llm_generator:
+            try:
+                llm_description = (
+                    self.llm_generator.generate_executive_summary_description(
+                        self.analysis_results
+                    )
+                )
+                self._add_llm_description(llm_description)
+            except Exception as e:
+                logger.warning(
+                    f"Failed to generate LLM executive summary description: {e}"
+                )
+
+        # Add additional executive summary content if needed
+        self._add_paragraph(
+            "This report provides a comprehensive analysis of the sales offer prediction model, including data quality, feature relevance, class balance, model performance, and financial impact."
+        )
+
     def _add_financial_impact_section(self) -> None:
         """Add financial impact analysis section to the report."""
         if "financial_impact" not in self.analysis_results:
@@ -692,26 +853,34 @@ class PDFReportGenerator:
 
         self._add_section_header("Financial Impact Analysis")
 
-        financial = self.analysis_results["financial_impact"]
+        financial_impact = self.analysis_results["financial_impact"]
 
-        # Add LLM-generated financial impact description
+        # Add LLM-generated financial impact description if available
         if self.use_llm_descriptions and self.llm_generator:
             try:
                 llm_description = (
-                    self.llm_generator.generate_financial_impact_description(financial)
+                    self.llm_generator.generate_financial_impact_description(
+                        financial_impact
+                    )
                 )
-                self._add_subsection_header("Financial Impact Summary")
                 self._add_llm_description(llm_description)
             except Exception as e:
                 logger.warning(
                     f"Failed to generate LLM financial impact description: {e}"
                 )
 
+        # Add financial metrics and analysis
+        self._add_paragraph(
+            "The financial impact analysis evaluates the profitability and risk associated with the sales offer campaign, providing insights into potential returns and losses."
+        )
+
         # Add campaign size if available
-        if "campaign_size" in financial:
+        if "campaign_size" in financial_impact:
             self._add_subsection_header("Campaign Overview")
             campaign_data = [["Metric", "Value"]]
-            campaign_data.append(["Campaign Size", f"{financial['campaign_size']:,}"])
+            campaign_data.append(
+                ["Campaign Size", f"{financial_impact['campaign_size']:,}"]
+            )
             self._add_table(campaign_data)
 
         # Add financial metrics
@@ -719,40 +888,42 @@ class PDFReportGenerator:
         metrics_data = [["Metric", "Value"]]
 
         # Add total profit if available
-        if "total_profit" in financial:
+        if "total_profit" in financial_impact:
             try:
-                profit_value = financial["total_profit"]
+                profit_value = financial_impact["total_profit"]
                 metrics_data.append(["Total Profit", f"${profit_value:.2f}"])
             except (TypeError, ValueError):
                 # Handle non-numeric values
-                metrics_data.append(["Total Profit", str(financial["total_profit"])])
+                metrics_data.append(
+                    ["Total Profit", str(financial_impact["total_profit"])]
+                )
 
         # Add opportunity loss if available
-        if "opportunity_loss" in financial:
+        if "opportunity_loss" in financial_impact:
             try:
-                loss_value = financial["opportunity_loss"]
+                loss_value = financial_impact["opportunity_loss"]
                 metrics_data.append(["Opportunity Loss", f"${loss_value:.2f}"])
             except (TypeError, ValueError):
                 metrics_data.append(
-                    ["Opportunity Loss", str(financial["opportunity_loss"])]
+                    ["Opportunity Loss", str(financial_impact["opportunity_loss"])]
                 )
 
         # Add ROI if available
-        if "roi" in financial:
+        if "roi" in financial_impact:
             try:
-                roi_value = financial["roi"]
+                roi_value = financial_impact["roi"]
                 metrics_data.append(["ROI", f"{roi_value:.2f}%"])
             except (TypeError, ValueError):
-                metrics_data.append(["ROI", str(financial["roi"])])
+                metrics_data.append(["ROI", str(financial_impact["roi"])])
 
         if len(metrics_data) > 1:  # Only add table if we have data
             self._add_table(metrics_data)
 
         # Add profit by risk band if available
-        if "profit_by_risk_band" in financial:
+        if "profit_by_risk_band" in financial_impact:
             self._add_subsection_header("Profit by Risk Band")
             risk_band_data = [["Risk Band", "Profit"]]
-            for risk_band, profit in financial["profit_by_risk_band"].items():
+            for risk_band, profit in financial_impact["profit_by_risk_band"].items():
                 try:
                     risk_band_data.append([risk_band, f"${float(profit):.2f}"])
                 except (ValueError, TypeError):
@@ -762,9 +933,9 @@ class PDFReportGenerator:
                 self._add_table(risk_band_data)
 
         # Add scaled confusion matrix if available
-        if "scaled_confusion_matrix" in financial:
+        if "scaled_confusion_matrix" in financial_impact:
             self._add_subsection_header("Scaled Confusion Matrix")
-            cm = financial["scaled_confusion_matrix"]
+            cm = financial_impact["scaled_confusion_matrix"]
             if isinstance(cm, dict) and all(
                 k in cm
                 for k in [
@@ -800,18 +971,18 @@ class PDFReportGenerator:
                 # Add interpretation of scaled confusion matrix
                 self._add_paragraph(
                     "The scaled confusion matrix shows the predicted distribution of customers "
-                    f"in a campaign of {financial.get('campaign_size', 'N/A')} customers. "
+                    f"in a campaign of {financial_impact.get('campaign_size', 'N/A')} customers. "
                     f"True positives ({cm['true_positives']:,}) represent correctly targeted customers, "
                     f"while false positives ({cm['false_positives']:,}) represent customers incorrectly targeted. "
                     f"False negatives ({cm['false_negatives']:,}) represent missed opportunities."
                 )
 
         # Add profit by threshold if available
-        if "profit_by_threshold" in financial:
+        if "profit_by_threshold" in financial_impact:
             self._add_subsection_header("Profit by Threshold")
             threshold_data = [["Threshold", "Profit", "ROI"]]
 
-            for threshold, values in financial["profit_by_threshold"].items():
+            for threshold, values in financial_impact["profit_by_threshold"].items():
                 try:
                     if isinstance(values, dict):
                         # Handle dictionary format
@@ -879,13 +1050,7 @@ class PDFReportGenerator:
         )
 
         # Add executive summary
-        self._add_section_header("Executive Summary")
-        self._add_paragraph(
-            "This report presents a comprehensive analysis of the predictive model "
-            "performance, including data quality assessment, feature relevance, "
-            "class balance, model performance metrics, and financial impact analysis. "
-            "The insights provided in this report aim to support data-driven decision making."
-        )
+        self._add_executive_summary()
 
         # Add information about LLM-enhanced descriptions if enabled
         if self.use_llm_descriptions and self.llm_generator:
