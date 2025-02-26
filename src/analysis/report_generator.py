@@ -168,38 +168,59 @@ class PDFReportGenerator:
 
         data_quality = self.analysis_results["data_quality"]
 
-        # Add missing values summary
-        self._add_subsection_header("Missing Values Summary")
-        missing_data = [["Feature", "Missing Count", "Missing Percentage"]]
-        for feature, values in data_quality["missing_values"].items():
-            missing_data.append(
-                [feature, str(values["count"]), f"{values['percentage']:.2f}%"]
-            )
-        self._add_table(missing_data)
+        # Add missing values summary if available
+        if "missing_values" in data_quality:
+            self._add_subsection_header("Missing Values Summary")
+            missing_data = [["Feature", "Missing Count", "Missing Percentage"]]
+            for feature, values in data_quality["missing_values"].items():
+                # Handle both dictionary format and integer format
+                if isinstance(values, dict):
+                    # Dictionary format: {"count": X, "percentage": Y}
+                    count = str(values["count"])
+                    percentage = f"{values['percentage']:.2f}%"
+                else:
+                    # Integer format: values is just a count
+                    count = str(values)
+                    # Calculate percentage (assume total records is 100 if not available)
+                    total_records = data_quality.get("total_records", 100)
+                    percentage = (
+                        f"{(values / total_records * 100):.2f}%"
+                        if total_records > 0
+                        else "0.00%"
+                    )
 
-        # Add data types summary
-        self._add_subsection_header("Data Types Summary")
-        dtypes_data = [["Feature", "Data Type"]]
-        for feature, dtype in data_quality["data_types"].items():
-            dtypes_data.append([feature, dtype])
-        self._add_table(dtypes_data)
+                missing_data.append([feature, count, percentage])
+            self._add_table(missing_data)
 
-        # Add descriptive statistics
+        # Add data types summary if available
+        if "data_types" in data_quality:
+            self._add_subsection_header("Data Types Summary")
+            dtypes_data = [["Feature", "Data Type"]]
+            for feature, dtype in data_quality["data_types"].items():
+                dtypes_data.append([feature, dtype])
+            self._add_table(dtypes_data)
+
+        # Add descriptive statistics if available
         if "descriptive_stats" in data_quality:
             self._add_subsection_header("Descriptive Statistics")
             self._add_paragraph("Summary statistics for numerical features:")
             stats_data = [["Feature", "Mean", "Median", "Std Dev", "Min", "Max"]]
             for feature, stats in data_quality["descriptive_stats"].items():
-                stats_data.append(
-                    [
-                        feature,
-                        f"{stats['mean']:.2f}",
-                        f"{stats['median']:.2f}",
-                        f"{stats['std']:.2f}",
-                        f"{stats['min']:.2f}",
-                        f"{stats['max']:.2f}",
-                    ]
-                )
+                try:
+                    stats_data.append(
+                        [
+                            feature,
+                            f"{stats['mean']:.2f}",
+                            f"{stats['median']:.2f}",
+                            f"{stats['std']:.2f}",
+                            f"{stats['min']:.2f}",
+                            f"{stats['max']:.2f}",
+                        ]
+                    )
+                except (KeyError, TypeError) as e:
+                    # Handle missing or invalid statistics
+                    logger.warning(f"Invalid stats for feature {feature}: {e}")
+                    stats_data.append([feature, "N/A", "N/A", "N/A", "N/A", "N/A"])
             self._add_table(stats_data)
 
     def _add_feature_relevance_section(self) -> None:
@@ -211,17 +232,21 @@ class PDFReportGenerator:
 
         feature_relevance = self.analysis_results["feature_relevance"]
 
-        # Add feature importance
-        self._add_subsection_header("Feature Importance")
-        importance_data = [["Feature", "Importance Score"]]
-        for feature, score in feature_relevance["feature_importance"].items():
-            importance_data.append([feature, f"{score:.4f}"])
-        self._add_table(importance_data)
+        # Add feature importance if available
+        if "feature_importance" in feature_relevance:
+            self._add_subsection_header("Feature Importance")
+            importance_data = [["Feature", "Importance Score"]]
+            for feature, score in feature_relevance["feature_importance"].items():
+                try:
+                    importance_data.append([feature, f"{float(score):.4f}"])
+                except (ValueError, TypeError):
+                    importance_data.append([feature, str(score)])
+            self._add_table(importance_data)
 
-        # Add feature importance plot if available
-        feature_importance_plot = self.save_path / "feature_importance.png"
-        if feature_importance_plot.exists():
-            self._add_image(feature_importance_plot)
+            # Add feature importance plot if available
+            feature_importance_plot = self.save_path / "feature_importance.png"
+            if feature_importance_plot.exists():
+                self._add_image(feature_importance_plot)
 
     def _add_class_balance_section(self) -> None:
         """Add class balance analysis section to the report."""
@@ -232,14 +257,30 @@ class PDFReportGenerator:
 
         class_balance = self.analysis_results["class_balance"]
 
-        # Add class distribution
-        self._add_subsection_header("Class Distribution")
-        class_data = [["Class", "Count", "Percentage"]]
-        for cls, values in class_balance["class_distribution"].items():
-            class_data.append(
-                [cls, str(values["count"]), f"{values['percentage']:.2f}%"]
-            )
-        self._add_table(class_data)
+        # Add class distribution if available
+        if "class_distribution" in class_balance:
+            self._add_subsection_header("Class Distribution")
+            class_data = [["Class", "Count", "Percentage"]]
+            for cls, values in class_balance["class_distribution"].items():
+                # Handle both dictionary format and integer format
+                if isinstance(values, dict):
+                    # Dictionary format: {"count": X, "percentage": Y}
+                    count = str(values["count"])
+                    percentage = f"{values['percentage']:.2f}%"
+                else:
+                    # Integer format: values is just a count
+                    count = str(values)
+                    # Calculate percentage (assume total is sum of all values)
+                    total = sum(
+                        val if isinstance(val, int) else val.get("count", 0)
+                        for val in class_balance["class_distribution"].values()
+                    )
+                    percentage = (
+                        f"{(values / total * 100):.2f}%" if total > 0 else "0.00%"
+                    )
+
+                class_data.append([cls, count, percentage])
+            self._add_table(class_data)
 
         # Add class distribution plot if available
         class_dist_plot = self.save_path / "class_distribution.png"
@@ -255,22 +296,46 @@ class PDFReportGenerator:
 
         model_perf = self.analysis_results["model_performance"]
 
-        # Add classification metrics
-        self._add_subsection_header("Classification Metrics")
-        metrics_data = [["Metric", "Value"]]
-        for metric, value in model_perf["classification_metrics"].items():
-            metrics_data.append([metric.replace("_", " ").title(), f"{value:.4f}"])
-        self._add_table(metrics_data)
+        # Add classification metrics if available
+        if "classification_metrics" in model_perf:
+            self._add_subsection_header("Classification Metrics")
+            metrics_data = [["Metric", "Value"]]
+            for metric, value in model_perf["classification_metrics"].items():
+                try:
+                    metrics_data.append(
+                        [metric.replace("_", " ").title(), f"{float(value):.4f}"]
+                    )
+                except (ValueError, TypeError):
+                    metrics_data.append([metric.replace("_", " ").title(), str(value)])
+            self._add_table(metrics_data)
 
-        # Add confusion matrix
-        self._add_subsection_header("Confusion Matrix")
-        cm = model_perf["confusion_matrix"]
-        cm_data = [
-            ["", "Predicted Negative", "Predicted Positive"],
-            ["Actual Negative", str(cm["true_negatives"]), str(cm["false_positives"])],
-            ["Actual Positive", str(cm["false_negatives"]), str(cm["true_positives"])],
-        ]
-        self._add_table(cm_data)
+        # Add confusion matrix if available
+        if "confusion_matrix" in model_perf:
+            cm = model_perf["confusion_matrix"]
+            if isinstance(cm, dict) and all(
+                k in cm
+                for k in [
+                    "true_negatives",
+                    "false_positives",
+                    "false_negatives",
+                    "true_positives",
+                ]
+            ):
+                self._add_subsection_header("Confusion Matrix")
+                cm_data = [
+                    ["", "Predicted Negative", "Predicted Positive"],
+                    [
+                        "Actual Negative",
+                        str(cm["true_negatives"]),
+                        str(cm["false_positives"]),
+                    ],
+                    [
+                        "Actual Positive",
+                        str(cm["false_negatives"]),
+                        str(cm["true_positives"]),
+                    ],
+                ]
+                self._add_table(cm_data)
 
         # Add ROC curve plot if available
         roc_plot = self.save_path / "roc_curve.png"
@@ -289,26 +354,63 @@ class PDFReportGenerator:
         # Add financial metrics
         self._add_subsection_header("Financial Metrics")
         metrics_data = [["Metric", "Value"]]
-        metrics_data.append(["Total Profit", f"${financial['total_profit']:.2f}"])
-        metrics_data.append(
-            ["Opportunity Loss", f"${financial['opportunity_loss']:.2f}"]
-        )
-        metrics_data.append(["ROI", f"{financial['roi']:.2f}%"])
-        self._add_table(metrics_data)
+
+        # Add total profit if available
+        if "total_profit" in financial:
+            try:
+                profit_value = financial["total_profit"]
+                metrics_data.append(["Total Profit", f"${profit_value:.2f}"])
+            except (TypeError, ValueError):
+                # Handle non-numeric values
+                metrics_data.append(["Total Profit", str(financial["total_profit"])])
+
+        # Add opportunity loss if available
+        if "opportunity_loss" in financial:
+            try:
+                loss_value = financial["opportunity_loss"]
+                metrics_data.append(["Opportunity Loss", f"${loss_value:.2f}"])
+            except (TypeError, ValueError):
+                metrics_data.append(
+                    ["Opportunity Loss", str(financial["opportunity_loss"])]
+                )
+
+        # Add ROI if available
+        if "roi" in financial:
+            try:
+                roi_value = financial["roi"]
+                metrics_data.append(["ROI", f"{roi_value:.2f}%"])
+            except (TypeError, ValueError):
+                metrics_data.append(["ROI", str(financial["roi"])])
+
+        if len(metrics_data) > 1:  # Only add table if we have data
+            self._add_table(metrics_data)
 
         # Add profit by threshold if available
         if "profit_by_threshold" in financial:
             self._add_subsection_header("Profit by Threshold")
             threshold_data = [["Threshold", "Profit", "ROI"]]
+
             for threshold, values in financial["profit_by_threshold"].items():
-                threshold_data.append(
-                    [
-                        f"{float(threshold):.2f}",
-                        f"${values['profit']:.2f}",
-                        f"{values['roi']:.2f}%",
-                    ]
-                )
-            self._add_table(threshold_data)
+                try:
+                    if isinstance(values, dict):
+                        # Handle dictionary format
+                        profit = values.get("profit", 0)
+                        roi = values.get("roi", 0)
+                        threshold_data.append(
+                            [f"{float(threshold):.2f}", f"${profit:.2f}", f"{roi:.2f}%"]
+                        )
+                    else:
+                        # Handle non-dictionary values
+                        threshold_data.append(
+                            [f"{float(threshold):.2f}", str(values), "N/A"]
+                        )
+                except (ValueError, TypeError) as e:
+                    # Handle conversion errors
+                    logger.warning(f"Error processing threshold {threshold}: {e}")
+                    threshold_data.append([str(threshold), "Error", "Error"])
+
+            if len(threshold_data) > 1:  # Only add table if we have data
+                self._add_table(threshold_data)
 
         # Add financial impact plots if available
         financial_plot = self.save_path / "financial_impact.png"

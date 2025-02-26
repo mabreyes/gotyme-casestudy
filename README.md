@@ -44,12 +44,14 @@ This project implements a machine learning solution to predict whether a custome
 ## Installation
 
 1. Clone the repository:
+
 ```bash
 git clone <repository-url>
 cd sales-offer-prediction
 ```
 
 2. Build the Docker images:
+
 ```bash
 make build
 ```
@@ -59,6 +61,7 @@ make build
 ### Available Commands
 
 View all available commands:
+
 ```bash
 make help
 ```
@@ -66,21 +69,25 @@ make help
 ### Training and Analysis
 
 1. Build the Docker images:
+
 ```bash
 make build
 ```
 
 2. Train the model and run analysis:
+
 ```bash
 make analyze
 ```
 
 This will:
+
 - Train the XGBoost model with optimized hyperparameters
 - Generate analysis reports and visualizations
 - Save model artifacts in the `models` directory
 
 3. View results:
+
 ```bash
 # View analysis report
 make view-analysis
@@ -90,6 +97,7 @@ make view-metrics
 ```
 
 Analysis outputs will be available in:
+
 - Model analysis report: `models/analysis/analysis_report.json`
 - Model file: `models/model.pkl`
 - Performance metrics: `models/metrics.json`
@@ -98,6 +106,7 @@ Analysis outputs will be available in:
 ### Model Performance
 
 Current model metrics (as of latest training):
+
 - Accuracy: 91.49%
 - Precision: 64.60%
 - Recall: 53.63%
@@ -107,6 +116,7 @@ Current model metrics (as of latest training):
 ### Financial Impact Analysis
 
 The model includes risk-based financial impact analysis:
+
 - Risk bands: High (10%), Medium (25%), Low (65%)
 - Profit/loss matrix per risk band
 - Campaign size analysis (default: 10,000 customers)
@@ -115,6 +125,7 @@ The model includes risk-based financial impact analysis:
 ### Using the API
 
 Start the API server:
+
 ```bash
 make serve
 ```
@@ -122,11 +133,13 @@ make serve
 The API provides the following endpoints:
 
 1. Train Model
+
 ```bash
 curl -X POST http://localhost:8000/train
 ```
 
 2. Make Predictions
+
 ```bash
 curl -X POST http://localhost:8000/predict \
   -H "Content-Type: application/json" \
@@ -134,6 +147,7 @@ curl -X POST http://localhost:8000/predict \
 ```
 
 3. Analyze Financial Impact
+
 ```bash
 curl -X POST http://localhost:8000/analyze \
   -H "Content-Type: application/json" \
@@ -174,12 +188,14 @@ make all
 ### Features
 
 The model uses the following features:
+
 - Customer demographics (age, employment type, civil status, education)
 - Telematics data (call duration, attempts, campaign history)
 - Macro variables (employment rate, CPI, etc.)
 - Financial indicators (credit defaults, loans)
 
 Key informative features (based on mutual information):
+
 - Feature_dn_1 (0.078)
 - Feature_em_8 (0.073)
 - Feature_cx_7 (0.069)
@@ -200,6 +216,7 @@ Key informative features (based on mutual information):
 ### Performance Analysis
 
 The model evaluation includes:
+
 - ROC curves with optimal threshold analysis
 - Confusion matrix visualization
 - Feature importance plots
