@@ -109,7 +109,7 @@ class PDFReportGenerator:
         self.elements.append(Spacer(1, 0.1 * 72))  # 0.1-inch spacer
 
     def _add_image(
-        self, image_path: Path, width: int = 500, height: Optional[int] = None
+        self, image_path: Path, width: int = 400, height: Optional[int] = None
     ) -> None:
         """Add an image to the report.
 
@@ -120,11 +120,35 @@ class PDFReportGenerator:
         """
         if not image_path.exists():
             logger.warning(f"Image not found: {image_path}")
+            self._add_paragraph(f"[Image not available: {image_path.name}]")
             return
 
-        img = Image(str(image_path), width=width, height=height)
-        self.elements.append(img)
-        self.elements.append(Spacer(1, 0.2 * 72))  # 0.2-inch spacer
+        # Skip problematic images that are known to cause layout issues
+        if (
+            hasattr(self, "problematic_images")
+            and image_path.name in self.problematic_images
+        ):
+            logger.info(f"Skipping problematic image: {image_path.name}")
+            self._add_paragraph(
+                f"[Image '{image_path.name}' is available in the project directory but not shown in the PDF "
+                "due to formatting constraints.]"
+            )
+            return
+
+        try:
+            # Adjust width to fit within page margins (letter page is 612 x 792 points)
+            max_width = 400  # Conservative width that works well with default margins
+            if width > max_width:
+                width = max_width
+
+            # Add the image with controlled dimensions
+            img = Image(str(image_path), width=width, height=height)
+            self.elements.append(img)
+            self.elements.append(Spacer(1, 0.2 * 72))  # 0.2-inch spacer
+        except Exception as e:
+            logger.warning(f"Error adding image {image_path}: {e}")
+            # Add a placeholder text instead
+            self._add_paragraph(f"[Image could not be displayed: {image_path.name}]")
 
     def _add_table(
         self,
@@ -232,21 +256,113 @@ class PDFReportGenerator:
 
         feature_relevance = self.analysis_results["feature_relevance"]
 
+        # Add mutual information if available
+        if "mutual_information" in feature_relevance:
+            self._add_subsection_header("Mutual Information with Target")
+            mi_data = [["Feature", "Mutual Information Score"]]
+            # Sort by mutual information score in descending order for better readability
+            sorted_mi = sorted(
+                feature_relevance["mutual_information"].items(),
+                key=lambda x: float(x[1])
+                if isinstance(x[1], (int, float, str))
+                and str(x[1]).replace(".", "", 1).isdigit()
+                else 0,
+                reverse=True,
+            )
+            for feature, score in sorted_mi:
+                try:
+                    mi_data.append([feature, f"{float(score):.4f}"])
+                except (ValueError, TypeError):
+                    mi_data.append([feature, str(score)])
+            self._add_table(mi_data)
+
+            # Add explanation of mutual information
+            self._add_paragraph(
+                "Mutual Information measures the amount of information obtained about the target "
+                "variable when observing each feature. Higher values indicate stronger relevance "
+                "to the prediction task."
+            )
+
         # Add feature importance if available
         if "feature_importance" in feature_relevance:
             self._add_subsection_header("Feature Importance")
             importance_data = [["Feature", "Importance Score"]]
-            for feature, score in feature_relevance["feature_importance"].items():
+
+            # Sort by importance score in descending order for better readability
+            sorted_importance = sorted(
+                feature_relevance["feature_importance"].items(),
+                key=lambda x: float(x[1])
+                if isinstance(x[1], (int, float, str))
+                and str(x[1]).replace(".", "", 1).isdigit()
+                else 0,
+                reverse=True,
+            )
+
+            for feature, score in sorted_importance:
                 try:
                     importance_data.append([feature, f"{float(score):.4f}"])
                 except (ValueError, TypeError):
                     importance_data.append([feature, str(score)])
             self._add_table(importance_data)
 
+            # Add explanation of feature importance
+            self._add_paragraph(
+                "Feature importance scores indicate how useful each feature was in the construction "
+                "of the model. Features with higher importance contributed more to the prediction."
+            )
+
             # Add feature importance plot if available
             feature_importance_plot = self.save_path / "feature_importance.png"
             if feature_importance_plot.exists():
                 self._add_image(feature_importance_plot)
+
+        # Add high correlations if available
+        if "high_correlations" in feature_relevance:
+            self._add_subsection_header("Highly Correlated Features")
+            corr_data = [["Feature 1", "Feature 2", "Correlation"]]
+
+            for corr_info in feature_relevance["high_correlations"]:
+                if isinstance(corr_info, (list, tuple)) and len(corr_info) >= 3:
+                    try:
+                        corr_data.append(
+                            [
+                                str(corr_info[0]),
+                                str(corr_info[1]),
+                                f"{float(corr_info[2]):.4f}",
+                            ]
+                        )
+                    except (ValueError, TypeError, IndexError):
+                        corr_data.append(
+                            [
+                                str(corr_info[0]) if len(corr_info) > 0 else "Unknown",
+                                str(corr_info[1]) if len(corr_info) > 1 else "Unknown",
+                                str(corr_info[2]) if len(corr_info) > 2 else "Unknown",
+                            ]
+                        )
+
+            if len(corr_data) > 1:  # Only add table if we have data
+                self._add_table(corr_data)
+
+                # Add explanation of high correlations
+                self._add_paragraph(
+                    "Highly correlated features provide similar information and may introduce redundancy "
+                    "in the model. Correlation values close to 1 or -1 indicate strong linear relationships "
+                    "between features."
+                )
+
+        # Add correlation matrix section
+        correlation_matrix_plot = self.save_path / "correlation_matrix.png"
+        if correlation_matrix_plot.exists():
+            self._add_subsection_header("Feature Correlation Matrix")
+
+            self._add_paragraph(
+                "The correlation matrix visualizes the pairwise correlation between numerical features. "
+                "Darker red indicates strong positive correlation, darker blue indicates strong negative correlation, "
+                "and light colors indicate weak correlation."
+            )
+
+            # The _add_image method will automatically handle problematic images
+            self._add_image(correlation_matrix_plot)
 
     def _add_class_balance_section(self) -> None:
         """Add class balance analysis section to the report."""
@@ -256,6 +372,25 @@ class PDFReportGenerator:
         self._add_section_header("Class Balance Analysis")
 
         class_balance = self.analysis_results["class_balance"]
+
+        # Add class counts if available
+        if "class_counts" in class_balance:
+            self._add_subsection_header("Class Counts")
+            class_counts_data = [["Class", "Count"]]
+            for cls, count in class_balance["class_counts"].items():
+                class_counts_data.append([cls, str(count)])
+            self._add_table(class_counts_data)
+
+        # Add class proportions if available
+        if "class_proportions" in class_balance:
+            self._add_subsection_header("Class Proportions")
+            class_proportions_data = [["Class", "Proportion"]]
+            for cls, proportion in class_balance["class_proportions"].items():
+                try:
+                    class_proportions_data.append([cls, f"{float(proportion):.2%}"])
+                except (ValueError, TypeError):
+                    class_proportions_data.append([cls, str(proportion)])
+            self._add_table(class_proportions_data)
 
         # Add class distribution if available
         if "class_distribution" in class_balance:
@@ -282,6 +417,17 @@ class PDFReportGenerator:
                 class_data.append([cls, count, percentage])
             self._add_table(class_data)
 
+        # Add interpretation of class balance
+        imbalance_message = (
+            "Class imbalance can significantly impact model performance. "
+        )
+        if (
+            "class_proportions" in class_balance
+            or "class_distribution" in class_balance
+        ):
+            imbalance_message += "The distribution shown above indicates the relative frequency of each class in the dataset."
+        self._add_paragraph(imbalance_message)
+
         # Add class distribution plot if available
         class_dist_plot = self.save_path / "class_distribution.png"
         if class_dist_plot.exists():
@@ -296,6 +442,44 @@ class PDFReportGenerator:
 
         model_perf = self.analysis_results["model_performance"]
 
+        # Add optimal threshold if available
+        if "optimal_threshold" in model_perf:
+            self._add_subsection_header("Optimal Threshold")
+            threshold_data = [["Metric", "Value"]]
+            try:
+                threshold_data.append(
+                    [
+                        "Optimal Threshold",
+                        f"{float(model_perf['optimal_threshold']):.4f}",
+                    ]
+                )
+            except (ValueError, TypeError):
+                threshold_data.append(
+                    ["Optimal Threshold", str(model_perf["optimal_threshold"])]
+                )
+
+            # Add threshold metrics if available
+            if "threshold_metrics" in model_perf:
+                metrics = model_perf["threshold_metrics"]
+                for metric, value in metrics.items():
+                    try:
+                        threshold_data.append(
+                            [metric.replace("_", " ").title(), f"{float(value):.4f}"]
+                        )
+                    except (ValueError, TypeError):
+                        threshold_data.append(
+                            [metric.replace("_", " ").title(), str(value)]
+                        )
+
+            self._add_table(threshold_data)
+
+            # Add explanation about optimal threshold
+            self._add_paragraph(
+                "The optimal threshold is the probability cutoff that maximizes model performance "
+                "by balancing the trade-off between true positive rate and false positive rate. "
+                "This threshold can be adjusted based on business requirements."
+            )
+
         # Add classification metrics if available
         if "classification_metrics" in model_perf:
             self._add_subsection_header("Classification Metrics")
@@ -308,6 +492,15 @@ class PDFReportGenerator:
                 except (ValueError, TypeError):
                     metrics_data.append([metric.replace("_", " ").title(), str(value)])
             self._add_table(metrics_data)
+
+            # Add explanation of classification metrics
+            metrics_explanation = (
+                "Classification metrics provide a quantitative assessment of the model's predictive performance. "
+                "Accuracy measures overall correctness, precision indicates the reliability of positive predictions, "
+                "recall measures the ability to find all positive samples, and F1 score is the harmonic mean of "
+                "precision and recall."
+            )
+            self._add_paragraph(metrics_explanation)
 
         # Add confusion matrix if available
         if "confusion_matrix" in model_perf:
@@ -323,24 +516,63 @@ class PDFReportGenerator:
             ):
                 self._add_subsection_header("Confusion Matrix")
                 cm_data = [
-                    ["", "Predicted Negative", "Predicted Positive"],
+                    ["", "Predicted Negative", "Predicted Positive", "Total"],
                     [
                         "Actual Negative",
                         str(cm["true_negatives"]),
                         str(cm["false_positives"]),
+                        str(cm["true_negatives"] + cm["false_positives"]),
                     ],
                     [
                         "Actual Positive",
                         str(cm["false_negatives"]),
                         str(cm["true_positives"]),
+                        str(cm["false_negatives"] + cm["true_positives"]),
+                    ],
+                    [
+                        "Total",
+                        str(cm["true_negatives"] + cm["false_negatives"]),
+                        str(cm["false_positives"] + cm["true_positives"]),
+                        str(
+                            cm["true_negatives"]
+                            + cm["false_positives"]
+                            + cm["false_negatives"]
+                            + cm["true_positives"]
+                        ),
                     ],
                 ]
                 self._add_table(cm_data)
+
+                # Add explanation of confusion matrix
+                cm_explanation = (
+                    "The confusion matrix shows the count of correct and incorrect predictions. "
+                    "True Negatives (TN) and True Positives (TP) represent correct predictions, "
+                    "while False Positives (FP) and False Negatives (FN) represent incorrect predictions. "
+                    "The model correctly predicted "
+                    f"{cm['true_positives'] + cm['true_negatives']} out of "
+                    f"{cm['true_positives'] + cm['true_negatives'] + cm['false_positives'] + cm['false_negatives']} instances."
+                )
+                self._add_paragraph(cm_explanation)
 
         # Add ROC curve plot if available
         roc_plot = self.save_path / "roc_curve.png"
         if roc_plot.exists():
             self._add_image(roc_plot)
+            self._add_paragraph(
+                "The ROC (Receiver Operating Characteristic) curve shows the trade-off between "
+                "true positive rate and false positive rate at different classification thresholds. "
+                "A perfect classifier would have an area under the curve (AUC) of 1.0, while a random "
+                "classifier would have an AUC of 0.5."
+            )
+
+        # Add optimal threshold ROC plot if available
+        roc_optimal_plot = self.save_path / "roc_optimal_threshold.png"
+        if roc_optimal_plot.exists():
+            self._add_image(roc_optimal_plot)
+            self._add_paragraph(
+                "The plot above highlights the optimal threshold point on the ROC curve, "
+                "which represents the best balance between true positive rate and false positive rate."
+            )
 
     def _add_financial_impact_section(self) -> None:
         """Add financial impact analysis section to the report."""
@@ -350,6 +582,13 @@ class PDFReportGenerator:
         self._add_section_header("Financial Impact Analysis")
 
         financial = self.analysis_results["financial_impact"]
+
+        # Add campaign size if available
+        if "campaign_size" in financial:
+            self._add_subsection_header("Campaign Overview")
+            campaign_data = [["Metric", "Value"]]
+            campaign_data.append(["Campaign Size", f"{financial['campaign_size']:,}"])
+            self._add_table(campaign_data)
 
         # Add financial metrics
         self._add_subsection_header("Financial Metrics")
@@ -384,6 +623,64 @@ class PDFReportGenerator:
 
         if len(metrics_data) > 1:  # Only add table if we have data
             self._add_table(metrics_data)
+
+        # Add profit by risk band if available
+        if "profit_by_risk_band" in financial:
+            self._add_subsection_header("Profit by Risk Band")
+            risk_band_data = [["Risk Band", "Profit"]]
+            for risk_band, profit in financial["profit_by_risk_band"].items():
+                try:
+                    risk_band_data.append([risk_band, f"${float(profit):.2f}"])
+                except (ValueError, TypeError):
+                    risk_band_data.append([risk_band, str(profit)])
+
+            if len(risk_band_data) > 1:  # Only add table if we have data
+                self._add_table(risk_band_data)
+
+        # Add scaled confusion matrix if available
+        if "scaled_confusion_matrix" in financial:
+            self._add_subsection_header("Scaled Confusion Matrix")
+            cm = financial["scaled_confusion_matrix"]
+            if isinstance(cm, dict) and all(
+                k in cm
+                for k in [
+                    "true_negatives",
+                    "false_positives",
+                    "false_negatives",
+                    "true_positives",
+                ]
+            ):
+                cm_data = [
+                    ["", "Predicted Negative", "Predicted Positive", "Total"],
+                    [
+                        "Actual Negative",
+                        f"{cm['true_negatives']:,}",
+                        f"{cm['false_positives']:,}",
+                        f"{cm['true_negatives'] + cm['false_positives']:,}",
+                    ],
+                    [
+                        "Actual Positive",
+                        f"{cm['false_negatives']:,}",
+                        f"{cm['true_positives']:,}",
+                        f"{cm['false_negatives'] + cm['true_positives']:,}",
+                    ],
+                    [
+                        "Total",
+                        f"{cm['true_negatives'] + cm['false_negatives']:,}",
+                        f"{cm['false_positives'] + cm['true_positives']:,}",
+                        f"{cm['true_negatives'] + cm['false_positives'] + cm['false_negatives'] + cm['true_positives']:,}",
+                    ],
+                ]
+                self._add_table(cm_data)
+
+                # Add interpretation of scaled confusion matrix
+                self._add_paragraph(
+                    "The scaled confusion matrix shows the predicted distribution of customers "
+                    f"in a campaign of {financial.get('campaign_size', 'N/A')} customers. "
+                    f"True positives ({cm['true_positives']:,}) represent correctly targeted customers, "
+                    f"while false positives ({cm['false_positives']:,}) represent customers incorrectly targeted. "
+                    f"False negatives ({cm['false_negatives']:,}) represent missed opportunities."
+                )
 
         # Add profit by threshold if available
         if "profit_by_threshold" in financial:
@@ -441,6 +738,12 @@ class PDFReportGenerator:
             bottomMargin=72,
         )
 
+        # Define problematic images to skip
+        self.problematic_images = [
+            "correlation_matrix.png",
+            "financial_impact_detailed.png",
+        ]
+
         # Add title page
         self._add_title_page(
             "Model Analysis Report", "Comprehensive Evaluation and Interpretation"
@@ -455,15 +758,119 @@ class PDFReportGenerator:
             "The insights provided in this report aim to support data-driven decision making."
         )
 
-        # Add analysis sections
-        self._add_data_quality_section()
-        self._add_feature_relevance_section()
-        self._add_class_balance_section()
-        self._add_model_performance_section()
-        self._add_financial_impact_section()
+        # Note about skipped images
+        image_note = (
+            "Note: Some complex visualization images may not be included in this PDF due to formatting constraints. "
+            "These images can be viewed directly in the project's models/plots directory."
+        )
+        self._add_paragraph(image_note)
 
-        # Build the document
-        doc.build(self.elements)
+        # Safely add each analysis section with error handling
+        sections = [
+            ("Data Quality", self._add_data_quality_section),
+            ("Feature Relevance", self._add_feature_relevance_section),
+            ("Class Balance", self._add_class_balance_section),
+            ("Model Performance", self._add_model_performance_section),
+            ("Financial Impact", self._add_financial_impact_section),
+        ]
 
-        logger.info(f"PDF report generated successfully: {pdf_path}")
-        return pdf_path
+        for section_name, section_method in sections:
+            try:
+                section_method()
+            except Exception as e:
+                logger.error(f"Error generating {section_name} section: {e}")
+                self._add_section_header(f"{section_name} (Error)")
+                self._add_paragraph(
+                    f"An error occurred while generating this section: {str(e)}. "
+                    "The data may be incomplete or in an unexpected format."
+                )
+                # Continue with other sections despite errors
+
+        try:
+            # Build the document
+            doc.build(self.elements)
+            logger.info(f"PDF report generated successfully: {pdf_path}")
+            return pdf_path
+        except Exception as e:
+            logger.error(f"Error building PDF document: {e}")
+
+            # Try to identify which element caused the problem and remove it
+            if "too large on page" in str(e) and "filename=" in str(e):
+                # Extract the filename from the error message
+                import re
+
+                match = re.search(r"filename=([^)]+)", str(e))
+                if match:
+                    problematic_file = match.group(1)
+                    logger.warning(f"Identified problematic file: {problematic_file}")
+                    self.problematic_images.append(problematic_file.split("/")[-1])
+
+                    # Create a new set of elements without the problematic images
+                    filtered_elements = []
+                    for element in self.elements:
+                        skip = False
+                        for img_name in self.problematic_images:
+                            if (
+                                hasattr(element, "filename")
+                                and img_name in element.filename
+                            ):
+                                skip = True
+                                break
+                        if not skip:
+                            filtered_elements.append(element)
+
+                    # Try to build the document again with filtered elements
+                    try:
+                        doc = SimpleDocTemplate(
+                            str(pdf_path),
+                            pagesize=letter,
+                            rightMargin=72,
+                            leftMargin=72,
+                            topMargin=72,
+                            bottomMargin=72,
+                        )
+                        doc.build(filtered_elements)
+                        logger.info(
+                            f"PDF report generated successfully (without problematic images): {pdf_path}"
+                        )
+                        return pdf_path
+                    except Exception as e3:
+                        logger.error(
+                            f"Failed to generate report even without problematic images: {e3}"
+                        )
+
+            # If all else fails, create a simplified report
+            try:
+                # Create a new document with just critical elements
+                simplified_elements = []
+                simplified_elements.append(
+                    Paragraph("Model Analysis Report (Simplified)", self.title_style)
+                )
+                simplified_elements.append(Spacer(1, 0.5 * 72))
+                simplified_elements.append(
+                    Paragraph("Error in Report Generation", self.styles["Heading2"])
+                )
+                simplified_elements.append(Spacer(1, 0.2 * 72))
+                simplified_elements.append(
+                    Paragraph(
+                        f"The full report could not be generated due to an error: {str(e)}. "
+                        "This is a simplified version with basic information.",
+                        self.normal_style,
+                    )
+                )
+
+                # Save the simplified report
+                simple_doc = SimpleDocTemplate(
+                    str(pdf_path),
+                    pagesize=letter,
+                    rightMargin=72,
+                    leftMargin=72,
+                    topMargin=72,
+                    bottomMargin=72,
+                )
+                simple_doc.build(simplified_elements)
+                logger.info(f"Simplified PDF report generated successfully: {pdf_path}")
+                return pdf_path
+            except Exception as e2:
+                logger.error(f"Failed to generate even a simplified report: {e2}")
+                raise
