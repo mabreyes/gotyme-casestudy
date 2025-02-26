@@ -14,3 +14,9 @@ isort>=5.0.0
 mypy>=1.0.0
 python-dotenv==1.0.0
 imbalanced-learn>=0.11.0
+
+# LLM integration - at least one of these is required for LLM descriptions
+# Comment out any you don't want to use
+llama-cpp-python>=0.2.16  # Lightweight local inference for GGUF models
+# transformers>=4.34.0      # Alternative using HuggingFace models
+# torch>=2.0.0              # Required for transformers

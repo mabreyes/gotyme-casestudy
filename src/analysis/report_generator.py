@@ -18,6 +18,9 @@ from reportlab.platypus import (
     TableStyle,
 )
 
+# Import the LLM Description Generator
+from src.analysis.llm_description_generator import LLMDescriptionGenerator
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -25,16 +28,40 @@ logger = logging.getLogger(__name__)
 class PDFReportGenerator:
     """Generates professional PDF reports for model analysis results."""
 
-    def __init__(self, analysis_results: Dict, save_path: Path):
+    def __init__(
+        self,
+        analysis_results: Dict,
+        save_path: Path,
+        use_llm_descriptions: bool = True,
+        model_path: Optional[str] = None,
+        use_transformers: bool = False,
+    ):
         """Initialize the PDF report generator.
 
         Args:
             analysis_results: Dictionary containing all analysis results
             save_path: Path to save the generated PDF report
+            use_llm_descriptions: Whether to use LLM-generated descriptions
+            model_path: Path to LLM model file (for llama-cpp)
+            use_transformers: Whether to use transformers instead of llama-cpp
         """
         self.analysis_results = analysis_results
         self.save_path = save_path
         self.save_path.mkdir(parents=True, exist_ok=True)
+        self.use_llm_descriptions = use_llm_descriptions
+
+        # Initialize the LLM description generator if enabled
+        self.llm_generator = None
+        if use_llm_descriptions:
+            try:
+                self.llm_generator = LLMDescriptionGenerator(
+                    model_path=model_path, use_transformers=use_transformers
+                )
+                logger.info("LLM description generator initialized successfully")
+            except Exception as e:
+                logger.warning(f"Failed to initialize LLM description generator: {e}")
+                logger.warning("Falling back to static descriptions")
+                self.use_llm_descriptions = False
 
         # Initialize styles
         self.styles = getSampleStyleSheet()
@@ -56,6 +83,23 @@ class PDFReportGenerator:
         )
         self.normal_style = self.styles["Normal"]
         self.normal_style.alignment = TA_LEFT
+
+        # Style for LLM-generated descriptions
+        self.llm_description_style = ParagraphStyle(
+            name="LLMDescriptionStyle",
+            parent=self.styles["Normal"],
+            fontName="Helvetica-Oblique",
+            fontSize=10,
+            leading=12,
+            leftIndent=20,
+            rightIndent=20,
+            spaceAfter=12,
+            borderWidth=0.5,
+            borderColor=colors.grey,
+            borderPadding=10,
+            borderRadius=5,
+            backColor=colors.lightgrey,
+        )
 
         # Initialize document elements
         self.elements = []
@@ -270,6 +314,16 @@ class PDFReportGenerator:
                     stats_data.append([feature, "N/A", "N/A", "N/A", "N/A", "N/A"])
             self._add_table(stats_data)
 
+    def _add_llm_description(self, description: str) -> None:
+        """Add an LLM-generated description with special formatting.
+
+        Args:
+            description: The LLM-generated description text
+        """
+        if description:
+            self.elements.append(Paragraph(description, self.llm_description_style))
+            self.elements.append(Spacer(1, 0.1 * 72))
+
     def _add_feature_relevance_section(self) -> None:
         """Add feature relevance analysis section to the report."""
         if "feature_relevance" not in self.analysis_results:
@@ -333,6 +387,25 @@ class PDFReportGenerator:
                 "Feature importance scores indicate how useful each feature was in the construction "
                 "of the model. Features with higher importance contributed more to the prediction."
             )
+
+            # Add LLM-generated feature importance description
+            if (
+                self.use_llm_descriptions
+                and self.llm_generator
+                and len(sorted_importance) > 0
+            ):
+                try:
+                    llm_description = (
+                        self.llm_generator.generate_feature_importance_description(
+                            feature_relevance["feature_importance"]
+                        )
+                    )
+                    self._add_subsection_header("Feature Importance Insights")
+                    self._add_llm_description(llm_description)
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to generate LLM feature importance description: {e}"
+                    )
 
             # Add feature importance plot if available
             feature_importance_plot = self.save_path / "feature_importance.png"
@@ -464,6 +537,21 @@ class PDFReportGenerator:
         self._add_section_header("Model Performance Analysis")
 
         model_perf = self.analysis_results["model_performance"]
+
+        # Add LLM-generated model performance description if available
+        if self.use_llm_descriptions and self.llm_generator:
+            try:
+                llm_description = (
+                    self.llm_generator.generate_model_performance_description(
+                        model_perf
+                    )
+                )
+                self._add_subsection_header("Performance Summary")
+                self._add_llm_description(llm_description)
+            except Exception as e:
+                logger.warning(
+                    f"Failed to generate LLM model performance description: {e}"
+                )
 
         # Add optimal threshold if available
         if "optimal_threshold" in model_perf:
@@ -605,6 +693,19 @@ class PDFReportGenerator:
         self._add_section_header("Financial Impact Analysis")
 
         financial = self.analysis_results["financial_impact"]
+
+        # Add LLM-generated financial impact description
+        if self.use_llm_descriptions and self.llm_generator:
+            try:
+                llm_description = (
+                    self.llm_generator.generate_financial_impact_description(financial)
+                )
+                self._add_subsection_header("Financial Impact Summary")
+                self._add_llm_description(llm_description)
+            except Exception as e:
+                logger.warning(
+                    f"Failed to generate LLM financial impact description: {e}"
+                )
 
         # Add campaign size if available
         if "campaign_size" in financial:
@@ -785,6 +886,15 @@ class PDFReportGenerator:
             "class balance, model performance metrics, and financial impact analysis. "
             "The insights provided in this report aim to support data-driven decision making."
         )
+
+        # Add information about LLM-enhanced descriptions if enabled
+        if self.use_llm_descriptions and self.llm_generator:
+            llm_info = (
+                "This report includes AI-generated insights based on the analysis data. "
+                "These insights appear in highlighted text boxes throughout the report and "
+                "are intended to provide additional context and interpretation of the results."
+            )
+            self._add_paragraph(llm_info)
 
         # Note about image handling
         image_note = (
